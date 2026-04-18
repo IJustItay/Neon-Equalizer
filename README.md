@@ -88,7 +88,7 @@ Create the portable Windows executable:
 npm run dist
 ```
 
-The portable output is written to `release/Neon-Equalizer-2.0.0-Portable.exe`.
+The outputs are written to `release/Neon-Equalizer-2.0.0-Portable.exe` and `release/Neon-Equalizer-2.0.0-Setup.exe`.
 
 ## Repository Design
 
