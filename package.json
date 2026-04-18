@@ -2,6 +2,15 @@
   "name": "neon-equalizer",
   "version": "2.0.0",
   "description": "Professional Neon Equalizer GUI for Equalizer APO with AutoEQ and Squiglink integration",
+  "author": "Itay",
+  "homepage": "https://github.com/IJustItay/Neon-Equalizer#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IJustItay/Neon-Equalizer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/IJustItay/Neon-Equalizer/issues"
+  },
   "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
