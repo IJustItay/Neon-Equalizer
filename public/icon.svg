@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Neon Equalizer app icon">
+  <defs>
+    <linearGradient id="bg" x1="128" y1="80" x2="896" y2="944" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#10131d"/>
+      <stop offset="0.52" stop-color="#070911"/>
+      <stop offset="1" stop-color="#0c1320"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="178" y1="136" x2="846" y2="888" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00e5ff"/>
+      <stop offset="0.48" stop-color="#ec4899"/>
+      <stop offset="1" stop-color="#39ff88"/>
+    </linearGradient>
+    <linearGradient id="bars" x1="210" y1="738" x2="814" y2="258" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00e5ff"/>
+      <stop offset="0.5" stop-color="#ec4899"/>
+      <stop offset="1" stop-color="#39ff88"/>
+    </linearGradient>
+    <linearGradient id="wave" x1="244" y1="340" x2="780" y2="684" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#39ff88"/>
+      <stop offset="0.46" stop-color="#00e5ff"/>
+      <stop offset="1" stop-color="#ec4899"/>
+    </linearGradient>
+    <filter id="outerGlow" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.08 0 0 0 0 0.86 0 0 0 0 1 0 0 0 0.8 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <clipPath id="squircle">
+      <path d="M512 56c152 0 263 31 341 109s109 189 109 347-31 269-109 347-189 109-341 109-263-31-341-109S62 670 62 512s31-269 109-347S360 56 512 56Z"/>
+    </clipPath>
+  </defs>
+
+  <path d="M512 56c152 0 263 31 341 109s109 189 109 347-31 269-109 347-189 109-341 109-263-31-341-109S62 670 62 512s31-269 109-347S360 56 512 56Z" fill="url(#bg)"/>
+  <g clip-path="url(#squircle)">
+    <path d="M84 756c119-71 238-81 357-31 151 64 301 30 499-126v369H84Z" fill="#00e5ff" opacity="0.05"/>
+    <path d="M72 230c145 77 281 93 408 47 126-45 260-32 402 39V56H72Z" fill="#ec4899" opacity="0.05"/>
+    <path d="M512 110c134 0 232 27 300 95s95 166 95 307-27 239-95 307-166 95-300 95-232-27-300-95-95-166-95-307 27-239 95-307 166-95 300-95Z" fill="none" stroke="url(#ring)" stroke-width="24" opacity="0.88" filter="url(#outerGlow)"/>
+  </g>
+
+  <g filter="url(#softGlow)">
+    <rect x="232" y="426" width="74" height="296" rx="37" fill="#00e5ff"/>
+    <rect x="350" y="300" width="74" height="422" rx="37" fill="#17d6ff"/>
+    <rect x="478" y="468" width="74" height="254" rx="37" fill="#ec4899"/>
+    <rect x="600" y="254" width="74" height="468" rx="37" fill="#bf5cff"/>
+    <rect x="718" y="376" width="74" height="346" rx="37" fill="#39ff88"/>
+  </g>
+
+  <path d="M246 672V352l182 320V352l182 320V352l168 320"
+        fill="none"
+        stroke="#06101a"
+        stroke-width="94"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        opacity="0.7"/>
+  <path d="M246 672V352l182 320V352l182 320V352l168 320"
+        fill="none"
+        stroke="url(#wave)"
+        stroke-width="56"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        filter="url(#outerGlow)"/>
+  <path d="M246 672V352l182 320V352l182 320V352l168 320"
+        fill="none"
+        stroke="#f7fdff"
+        stroke-width="16"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        opacity="0.92"/>
+</svg>

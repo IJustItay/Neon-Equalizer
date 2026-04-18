@@ -1,0 +1,57 @@
+{
+  "name": "neon-equalizer",
+  "version": "2.0.0",
+  "description": "Professional Neon Equalizer GUI for Equalizer APO with AutoEQ and Squiglink integration",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "icons": "node scripts/generate-icons.mjs",
+    "build": "vite build",
+    "dist": "npm run icons && vite build && electron-builder --win portable",
+    "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.neonequalizer.app",
+    "productName": "Neon Equalizer",
+    "copyright": "Copyright © 2025",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "requestedExecutionLevel": "requireAdministrator",
+      "artifactName": "Neon-Equalizer-${version}-Portable.exe"
+    },
+    "portable": {
+      "requestExecutionLevel": "admin"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^26.8.1",
+    "sharp": "^0.34.5",
+    "vite": "^6.0.0",
+    "wait-on": "^8.0.0"
+  }
+}
