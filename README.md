@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> |
+  <a href="#downloads">Downloads</a> |
   <a href="#features">Features</a> |
   <a href="#build-from-source">Build from source</a> |
   <a href="docs/USAGE.md">Usage guide</a>
@@ -28,6 +29,15 @@ Neon Equalizer is designed for Windows users who already use, or want to use, [E
 5. Add filters, load an AutoEQ target, preview the result, then click **Save to APO**.
 
 The packaged Windows build requests administrator permission because Equalizer APO normally stores its config under `Program Files`.
+
+## Downloads
+
+Choose one Windows build:
+
+- [Portable app](downloads/Neon-Equalizer-2.0.0-Portable.exe) - run without installing.
+- [Installer](downloads/Neon-Equalizer-2.0.0-Setup.exe) - guided installation with shortcuts.
+
+Checksums are available in [SHA256SUMS.txt](downloads/SHA256SUMS.txt).
 
 ## Features
 

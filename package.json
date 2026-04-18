@@ -16,7 +16,7 @@
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "icons": "node scripts/generate-icons.mjs",
     "build": "vite build",
-    "dist": "npm run icons && vite build && electron-builder --win portable",
+    "dist": "npm run icons && vite build && electron-builder --win",
     "preview": "vite preview"
   },
   "build": {
@@ -41,15 +41,22 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
         }
       ],
-      "requestedExecutionLevel": "requireAdministrator",
-      "artifactName": "Neon-Equalizer-${version}-Portable.exe"
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "portable": {
+      "artifactName": "Neon-Equalizer-${version}-Portable.exe",
       "requestExecutionLevel": "admin"
     },
     "nsis": {
+      "artifactName": "Neon-Equalizer-${version}-Setup.exe",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
