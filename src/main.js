@@ -44,6 +44,8 @@ let autoApplyTimer = null;
 let autoApplyInFlight = false;
 let autoApplyPending = false;
 const AUTO_SAVE_APO_KEY = 'neon-equalizer:auto-save-apo';
+const DEVICE_PRESETS_KEY = 'neon-equalizer:device-presets:v1';
+const DEVICE_AUTO_SWITCH_KEY = 'neon-equalizer:device-auto-switch';
 
 // ─── Target Customizer State ──────────────────────────────────
 let tcState = { ...TARGET_ADJUSTMENT_DEFAULTS };
@@ -96,6 +98,11 @@ function initGraph() {
   };
   freqGraph.onFilterSelect = (filter) => {
     parametricEQ.selectFilter(filter.id);
+  };
+  freqGraph.onFilterDelete = (filter) => {
+    if (!filter?.id || !parametricEQ) return;
+    parametricEQ.removeFilter(filter.id);
+    showToast('Band deleted', 'info');
   };
 
   // Graph controls
@@ -476,6 +483,7 @@ function initTopBar() {
     if (e.target.checked) applyAutoPreamp();
   });
 
+  initDeviceSelector();
   initAutoSaveAPOToggle();
   document.getElementById('btn-save').addEventListener('click', saveConfig);
   document.getElementById('btn-import').addEventListener('click', importConfig);
@@ -544,6 +552,144 @@ function updateSaveModeLabel(enabled) {
       ? 'Every change is saved to Equalizer APO automatically'
       : 'Changes wait until you press Save to APO';
   }
+}
+
+function initDeviceSelector() {
+  const select = document.getElementById('device-select');
+  if (!select) return;
+
+  renderDeviceSelector(appState.config.device || 'all');
+
+  select.addEventListener('change', () => {
+    const deviceKey = select.value || 'all';
+    const profile = getDevicePresets()[deviceKey];
+    const deviceName = profile?.name || deviceKey;
+
+    if (getDeviceAutoSwitchEnabled() && profile?.config) {
+      pushUndo();
+      const nextConfig = JSON.parse(JSON.stringify(profile.config));
+      nextConfig.device = deviceKey === 'all' ? null : deviceName;
+      applyConfigObject(nextConfig);
+      renderDeviceSelector(deviceKey);
+      markDirty();
+      showToast(`Loaded device preset: ${deviceName}`, 'success');
+      return;
+    }
+
+    appState.config.device = deviceKey === 'all' ? null : deviceName;
+    updateRawConfigEditor();
+    markDirty();
+  });
+
+  document.getElementById('btn-device-save-preset')?.addEventListener('click', saveCurrentDevicePreset);
+
+  const autoToggle = document.getElementById('device-auto-switch-enabled');
+  if (autoToggle) {
+    autoToggle.checked = getDeviceAutoSwitchEnabled();
+    autoToggle.addEventListener('change', () => {
+      setDeviceAutoSwitchEnabled(autoToggle.checked);
+      showToast(autoToggle.checked ? 'Device auto-switch enabled' : 'Device auto-switch disabled', 'info');
+    });
+  }
+
+  navigator.mediaDevices?.addEventListener?.('devicechange', () => {
+    renderDeviceSelector(select.value || appState.config.device || 'all');
+  });
+}
+
+function getDevicePresets() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(DEVICE_PRESETS_KEY) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function setDevicePresets(presets) {
+  localStorage.setItem(DEVICE_PRESETS_KEY, JSON.stringify(presets));
+}
+
+function getDeviceAutoSwitchEnabled() {
+  try {
+    return localStorage.getItem(DEVICE_AUTO_SWITCH_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function setDeviceAutoSwitchEnabled(enabled) {
+  try {
+    localStorage.setItem(DEVICE_AUTO_SWITCH_KEY, String(Boolean(enabled)));
+  } catch {
+    // Keep the live toggle usable even if persistent storage is blocked.
+  }
+}
+
+function renderDeviceSelector(preferred = null) {
+  const select = document.getElementById('device-select');
+  if (!select) return;
+
+  const presets = getDevicePresets();
+  const names = new Map();
+  for (const [key, preset] of Object.entries(presets)) {
+    if (key && key !== 'all') names.set(key, preset?.name || key);
+  }
+  if (appState.config.device && appState.config.device !== 'all') {
+    const key = normalizeDevicePresetKey(appState.config.device);
+    names.set(key, appState.config.device);
+  }
+
+  const target = normalizeDevicePresetKey(preferred || appState.config.device || select.value || 'all');
+  select.innerHTML = '<option value="all">All Devices</option>';
+
+  for (const [key, name] of [...names.entries()].sort((a, b) => a[1].localeCompare(b[1]))) {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = presets[key]?.config ? `${name} • preset` : name;
+    select.appendChild(opt);
+  }
+
+  select.value = target === 'all' || names.has(target) ? target : 'all';
+}
+
+function saveCurrentDevicePreset() {
+  const select = document.getElementById('device-select');
+  const selected = select?.value || 'all';
+  let name = selected !== 'all'
+    ? (getDevicePresets()[selected]?.name || selected)
+    : (appState.config.device || '');
+
+  if (!name || name === 'all') {
+    name = window.prompt('Device name for this EQ preset:', '')?.trim() || '';
+  }
+  if (!name) {
+    showToast('Device preset needs a name', 'warning');
+    return;
+  }
+
+  const key = normalizeDevicePresetKey(name);
+  const config = snapshotCurrentConfig();
+  config.device = name;
+
+  const presets = getDevicePresets();
+  presets[key] = {
+    name,
+    updatedAt: new Date().toISOString(),
+    config
+  };
+  setDevicePresets(presets);
+
+  appState.config.device = name;
+  renderDeviceSelector(key);
+  updateRawConfigEditor();
+  markDirty();
+  showToast(`Saved device preset: ${name}`, 'success');
+}
+
+function normalizeDevicePresetKey(value) {
+  const text = String(value || '').trim();
+  return !text || text.toLowerCase() === 'all' ? 'all' : text;
 }
 
 function initWindowControls() {
@@ -2271,6 +2417,7 @@ function applyConfigObject(config, rawText = null) {
   renderDelays();
   renderVSTPlugins();
   renderLoudnessCorrection();
+  renderDeviceSelector(appState.config.device || 'all');
 
   document.getElementById('raw-config-editor').value = rawText || serializeConfig(appState.config);
 
@@ -2407,6 +2554,7 @@ function refreshUI() {
   freqGraph.setFilters(appState.config.filters);
   freqGraph.setPreamp(appState.config.preamp || 0);
   updateGraphLegend();
+  renderDeviceSelector(appState.config.device || 'all');
 
   document.getElementById('preamp-slider').value = appState.config.preamp || 0;
   document.getElementById('preamp-value').textContent =
@@ -2425,6 +2573,7 @@ function refreshUI() {
   renderLoudnessCorrection();
   renderIncludes();
   updateFilterCount();
+  updateRawConfigEditor();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2441,6 +2590,11 @@ function markDirty() {
     }
     updateStatus('Unsaved changes');
   }
+}
+
+function updateRawConfigEditor() {
+  const editor = document.getElementById('raw-config-editor');
+  if (editor) editor.value = serializeConfig(appState.config);
 }
 
 function scheduleAutoApply() {

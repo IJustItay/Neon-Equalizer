@@ -72,6 +72,7 @@ export class ParametricEQ {
 
   setFilters(filters) {
     this.filters = filters;
+    this._reindexFilters();
     this._render();
   }
 
@@ -103,8 +104,33 @@ export class ParametricEQ {
 
   removeFilter(id) {
     this.filters = this.filters.filter(f => f.id !== id);
+    if (this.selectedFilterId === id) this.selectedFilterId = null;
+    this._reindexFilters();
     this._render();
     this._notify();
+  }
+
+  duplicateFilter(id) {
+    const source = this.filters.find(f => f.id === id);
+    if (!source) return null;
+
+    const copyIndex = this.filters.indexOf(source) + 1;
+    const nextFrequency = source.frequency
+      ? Math.min(24000, Math.max(1, Math.round(source.frequency * 1.03 * 10) / 10))
+      : 1000;
+    const copy = {
+      ...JSON.parse(JSON.stringify(source)),
+      id: `filter_${Date.now()}_${this.filters.length}`,
+      frequency: nextFrequency,
+      color: filterColors[this.filters.length % filterColors.length]
+    };
+
+    this.filters.splice(copyIndex, 0, copy);
+    this.selectedFilterId = copy.id;
+    this._reindexFilters();
+    this._render();
+    this._notify();
+    return copy;
   }
 
   updateFilter(id, updates) {
@@ -149,8 +175,17 @@ export class ParametricEQ {
     if (!row) return;
     const freqInput = row.querySelector('.filter-freq');
     const gainInput = row.querySelector('.filter-gain');
+    const qInput = row.querySelector('.filter-q');
     if (freqInput) freqInput.value = filter.frequency;
     if (gainInput) gainInput.value = filter.gain?.toFixed(1) || '0';
+    if (qInput && filter.q !== null && filter.q !== undefined) qInput.value = filter.q.toFixed(3);
+  }
+
+  _reindexFilters() {
+    this.filters.forEach((filter, index) => {
+      filter.index = index;
+      if (!filter.color) filter.color = filterColors[index % filterColors.length];
+    });
   }
 
   _notify() {
@@ -211,6 +246,9 @@ export class ParametricEQ {
           </div>
         </span>
         <span class="filter-col filter-col-actions">
+          <button class="filter-action" data-action="duplicate" title="Duplicate filter">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M7 7V5a2 2 0 012-2h9a2 2 0 012 2v9a2 2 0 01-2 2h-2v-2h2V5H9v2H7zm-3 4a2 2 0 012-2h9a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8zm2 0v8h9v-8H6z" fill="currentColor"/></svg>
+          </button>
           <button class="filter-delete" data-action="delete" title="Remove filter">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/></svg>
           </button>
@@ -222,6 +260,12 @@ export class ParametricEQ {
         if (!e.target.closest('[data-action]') && !e.target.closest('input') && !e.target.closest('select')) {
           this.selectFilter(filter.id);
         }
+      });
+
+      row.addEventListener('contextmenu', (e) => {
+        if (e.target.closest('input') || e.target.closest('select')) return;
+        e.preventDefault();
+        this.removeFilter(filter.id);
       });
 
       const toggle = row.querySelector('[data-action="toggle"]');
@@ -264,6 +308,11 @@ export class ParametricEQ {
       const deleteBtn = row.querySelector('[data-action="delete"]');
       deleteBtn.addEventListener('click', () => {
         this.removeFilter(filter.id);
+      });
+
+      const duplicateBtn = row.querySelector('[data-action="duplicate"]');
+      duplicateBtn.addEventListener('click', () => {
+        this.duplicateFilter(filter.id);
       });
 
       this.container.appendChild(row);

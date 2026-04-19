@@ -65,6 +65,7 @@ export class FrequencyGraph {
 
     this.onFilterChange = null; // callback
     this.onFilterSelect = null;
+    this.onFilterDelete = null;
 
     this._animFrame = null;
     this._dpr = window.devicePixelRatio || 1;
@@ -101,6 +102,7 @@ export class FrequencyGraph {
     this.overlay.addEventListener('mouseleave', (e) => this._onMouseLeave(e));
     this.overlay.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
     this.overlay.addEventListener('dblclick', (e) => this._onDoubleClick(e));
+    this.overlay.addEventListener('contextmenu', (e) => this._onContextMenu(e));
   }
 
   // Coordinate conversions
@@ -1416,19 +1418,7 @@ export class FrequencyGraph {
     }
 
     // Check hover
-    let found = null;
-    if (this.curveVisibility.eq) {
-      for (const filter of this.filters) {
-        if (!filter.enabled || !filter.frequency) continue;
-        const fx = this.freqToX(filter.frequency);
-        const fy = this.dbToY(this._calcFilterResponse(filter, filter.frequency) + (this.curveOffsets.eq || 0));
-        const dist = Math.sqrt((x - fx) ** 2 + (y - fy) ** 2);
-        if (dist < 14) {
-          found = filter;
-          break;
-        }
-      }
-    }
+    const found = this._findFilterAt(x, y, 14);
 
     if (found !== this.hoveredFilter) {
       this.hoveredFilter = found;
@@ -1460,6 +1450,7 @@ export class FrequencyGraph {
   }
 
   _onMouseDown(e) {
+    if (e.button !== 0) return;
     const rect = this.overlay.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -1511,6 +1502,12 @@ export class FrequencyGraph {
     if (!this._isInsidePlot(x, y)) return;
 
     e.preventDefault();
+    const qTarget = this.hoveredFilter || this._findFilterAt(x, y, 18);
+    if (qTarget && this._filterSupportsQ(qTarget) && (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey)) {
+      this._adjustFilterQ(qTarget, e.deltaY, e.shiftKey);
+      return;
+    }
+
     const factor = Math.exp(Math.sign(e.deltaY || 1) * 0.18);
     if (e.ctrlKey || e.altKey) {
       this._zoomDbAt(y, factor);
@@ -1525,6 +1522,48 @@ export class FrequencyGraph {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     if (!this.hoveredFilter && this._isInsidePlot(x, y)) this.resetView();
+  }
+
+  _onContextMenu(e) {
+    const rect = this.overlay.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const filter = this.hoveredFilter || this._findFilterAt(x, y, 18);
+    if (!filter) return;
+    e.preventDefault();
+    if (this.onFilterDelete) this.onFilterDelete(filter);
+  }
+
+  _findFilterAt(x, y, radius = 14) {
+    if (!this.curveVisibility.eq) return null;
+    for (const filter of this.filters) {
+      if (!filter.enabled || !filter.frequency) continue;
+      const fx = this.freqToX(filter.frequency);
+      const fy = this.dbToY(this._calcFilterResponse(filter, filter.frequency) + (this.curveOffsets.eq || 0));
+      const dist = Math.sqrt((x - fx) ** 2 + (y - fy) ** 2);
+      if (dist < radius) return filter;
+    }
+    return null;
+  }
+
+  _filterSupportsQ(filter) {
+    if (!filter || filter.q === null || filter.q === undefined) return false;
+    return !['LP', 'HP', 'LS 6dB', 'LS 12dB', 'HS 6dB', 'HS 12dB', 'IIR'].includes(filter.type);
+  }
+
+  _adjustFilterQ(filter, deltaY, fine = false) {
+    const current = Number.isFinite(Number(filter.q)) ? Number(filter.q) : 0.707;
+    const step = fine ? 1.045 : 1.085;
+    const direction = deltaY < 0 ? 1 : -1;
+    const next = Math.max(0.01, Math.min(100, current * Math.pow(step, direction)));
+    filter.q = Number(next.toFixed(3));
+    if (this.onFilterSelect) this.onFilterSelect(filter);
+    if (this.onFilterChange) this.onFilterChange(filter);
+
+    const x = this.freqToX(filter.frequency);
+    const y = this.dbToY(this._calcFilterResponse(filter, filter.frequency) + (this.curveOffsets.eq || 0));
+    this._showTooltip(x, y, filter.frequency, filter.gain || 0, `Q ${filter.q.toFixed(3)}`);
+    this.render();
   }
 
   _panViewTo(x, y) {
@@ -1565,13 +1604,13 @@ export class FrequencyGraph {
     );
   }
 
-  _showTooltip(x, y, freq, db) {
+  _showTooltip(x, y, freq, db, extraText = null) {
     if (!this.tooltip) return;
     this.tooltip.style.display = 'flex';
     this.tooltip.style.left = (x + 16) + 'px';
     this.tooltip.style.top = (y - 30) + 'px';
     this.tooltip.querySelector('.tooltip-freq').textContent = formatFreq(freq);
-    this.tooltip.querySelector('.tooltip-gain').textContent = `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`;
+    this.tooltip.querySelector('.tooltip-gain').textContent = extraText || `${db >= 0 ? '+' : ''}${db.toFixed(1)} dB`;
   }
 
   _hideTooltip() {

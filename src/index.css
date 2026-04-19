@@ -138,6 +138,53 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; colo
 .topbar-divider { width: 1px; height: 20px; background: var(--bg-border); }
 .topbar-label { font-size: 9px; font-weight: 700; letter-spacing: 1.2px; color: var(--text-muted); text-transform: uppercase; }
 
+.device-profile-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.device-select { width: 150px; }
+.device-profile-btn {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(0,212,255,0.22);
+  border-radius: var(--radius-sm);
+  background: rgba(0,212,255,0.08);
+  color: var(--cyan);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+.device-profile-btn:hover {
+  background: rgba(0,212,255,0.16);
+  border-color: rgba(0,212,255,0.42);
+  color: #bdf4ff;
+}
+.device-auto-switch {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--bg-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.02);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color var(--t-fast), background var(--t-fast), color var(--t-fast);
+}
+.device-auto-switch:hover {
+  border-color: var(--bg-border-h);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.device-auto-switch input { display: none; }
+
 /* APO status */
 .apo-status { display: flex; align-items: center; gap: 6px; }
 .status-dot {
@@ -243,12 +290,14 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; colo
   background: var(--text-muted);
   transition: transform var(--t-fast) var(--ease-out), background var(--t-fast);
 }
-.save-mode-toggle input:checked + .save-mode-track {
+.save-mode-toggle input:checked + .save-mode-track,
+.device-auto-switch input:checked + .save-mode-track {
   background: var(--cyan-dim);
   border-color: rgba(0,212,255,0.42);
   box-shadow: 0 0 12px rgba(0,212,255,0.14);
 }
-.save-mode-toggle input:checked + .save-mode-track .save-mode-dot {
+.save-mode-toggle input:checked + .save-mode-track .save-mode-dot,
+.device-auto-switch input:checked + .save-mode-track .save-mode-dot {
   transform: translateX(13px);
   background: var(--cyan);
 }
@@ -709,7 +758,7 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
 .filter-col-freq { flex: 1; min-width: 120px; }
 .filter-col-gain { flex: 1; min-width: 120px; }
 .filter-col-q { flex: 1; min-width: 120px; }
-.filter-col-actions { width: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; }
+.filter-col-actions { width: 58px; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
 .filter-col-toggle { width: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 5px; }
 
 .filter-toggle {
@@ -772,6 +821,7 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
 }
 .filter-type-select:focus { outline: none; border-color: var(--cyan); }
 
+.filter-action,
 .filter-delete {
   width: 24px; height: 24px;
   border: none; border-radius: var(--radius-sm);
@@ -781,6 +831,7 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
   display: flex; align-items: center; justify-content: center;
   transition: all var(--t-fast);
 }
+.filter-action:hover { background: rgba(0,212,255,0.14); color: var(--cyan); }
 .filter-delete:hover { background: rgba(239,68,68,0.15); color: var(--red); }
 
 .empty-state {
@@ -909,16 +960,27 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
   align-items: center;
   gap: 3px;
 }
+.geq-band-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.geq-duplicate-band,
 .geq-remove-band {
-  width: 14px;
+  width: 15px;
   height: 14px;
   border: 1px solid var(--bg-border);
-  border-radius: 50%;
+  border-radius: 4px;
   background: transparent;
   color: var(--text-muted);
   font-size: 9px;
   line-height: 1;
   cursor: pointer;
+}
+.geq-duplicate-band:hover {
+  color: var(--cyan);
+  border-color: rgba(0,212,255,0.42);
+  background: rgba(0,212,255,0.08);
 }
 .geq-remove-band:hover {
   color: var(--red);
@@ -2159,6 +2221,8 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
 }
 
 @media (max-width: 1180px) {
+  .device-select { width: 122px; }
+  .device-auto-switch span:last-child { display: none; }
   .graph-legend {
     max-width: 46%;
   }

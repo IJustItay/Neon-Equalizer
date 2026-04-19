@@ -118,6 +118,18 @@ export class GraphicEQ {
     return true;
   }
 
+  duplicateBand(index) {
+    if (index < 0 || index >= this.bands.length) return false;
+    const source = this.bands[index];
+    const frequency = this._findDuplicateFrequency(source.frequency);
+    this.bands.push({ frequency, gain: source.gain });
+    this.bands.sort((a, b) => a.frequency - b.frequency);
+    this.bandCount = this._detectBandCount(this.bands) || 'custom';
+    this._render();
+    this._notify();
+    return true;
+  }
+
   updateBandFrequency(index, frequency) {
     const freq = this._roundFrequency(frequency);
     if (!Number.isFinite(freq) || index < 0 || index >= this.bands.length) return false;
@@ -241,6 +253,21 @@ export class GraphicEQ {
       });
   }
 
+  _findDuplicateFrequency(frequency) {
+    const used = new Set(this.bands.map(b => this._roundFrequency(b.frequency).toFixed(2)));
+    const base = Math.max(FREQ_MIN, Math.min(FREQ_MAX, Number(frequency) || 1000));
+    for (const ratio of [1.03, 0.97, 1.06, 0.94, 1.1, 0.9]) {
+      const candidate = this._roundFrequency(base * ratio);
+      if (Number.isFinite(candidate) && !used.has(candidate.toFixed(2))) return candidate;
+    }
+    for (let offset = 1; offset <= 1000; offset++) {
+      const candidate = this._roundFrequency(base + offset);
+      if (Number.isFinite(candidate) && !used.has(candidate.toFixed(2))) return candidate;
+    }
+    return this._roundFrequency(base);
+  }
+
+
   _detectBandCount(bands) {
     for (const [count, freqs] of Object.entries(ISO_BANDS)) {
       if (bands.length !== freqs.length) continue;
@@ -305,13 +332,17 @@ export class GraphicEQ {
         </div>
         <div class="geq-band-footer">
           <span class="geq-freq">${this._formatFreq(band.frequency)}</span>
-          <button type="button" class="geq-remove-band" title="Remove ${this._formatFreq(band.frequency)} Hz band" aria-label="Remove ${this._formatFreq(band.frequency)} Hz band">x</button>
+          <span class="geq-band-actions">
+            <button type="button" class="geq-duplicate-band" title="Duplicate ${this._formatFreq(band.frequency)} Hz band" aria-label="Duplicate ${this._formatFreq(band.frequency)} Hz band">+</button>
+            <button type="button" class="geq-remove-band" title="Remove ${this._formatFreq(band.frequency)} Hz band" aria-label="Remove ${this._formatFreq(band.frequency)} Hz band">x</button>
+          </span>
         </div>
       `;
 
       const slider = bandEl.querySelector('.geq-slider-input');
       const input = bandEl.querySelector('.geq-value-input');
       const freqInput = bandEl.querySelector('.geq-frequency-input');
+      const duplicateBtn = bandEl.querySelector('.geq-duplicate-band');
       const removeBtn = bandEl.querySelector('.geq-remove-band');
       const fill = bandEl.querySelector('.geq-slider-fill');
 
@@ -343,6 +374,16 @@ export class GraphicEQ {
       slider.addEventListener('dblclick', () => {
         updateVisual(0);
         this._notify();
+      });
+
+      bandEl.addEventListener('contextmenu', (e) => {
+        if (e.target.closest('input')) return;
+        e.preventDefault();
+        this.removeBand(i);
+      });
+
+      duplicateBtn.addEventListener('click', () => {
+        this.duplicateBand(i);
       });
 
       removeBtn.addEventListener('click', () => {

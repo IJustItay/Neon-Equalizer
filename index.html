@@ -66,9 +66,17 @@
       </label>
     </div>
     <div class="topbar-right">
-      <select id="device-select" class="select-sm" title="Target device">
-        <option value="all">All Devices</option>
-      </select>
+      <div class="device-profile-wrap">
+        <select id="device-select" class="select-sm device-select" title="Target device preset">
+          <option value="all">All Devices</option>
+        </select>
+        <button class="device-profile-btn" id="btn-device-save-preset" title="Save current EQ as the selected device preset">Preset</button>
+        <label class="device-auto-switch" title="Load a saved EQ preset when the selected device changes">
+          <input type="checkbox" id="device-auto-switch-enabled">
+          <span class="save-mode-track"><span class="save-mode-dot"></span></span>
+          <span>Auto Device</span>
+        </label>
+      </div>
       <div class="topbar-divider"></div>
       <button class="icon-btn" id="btn-undo" title="Undo (Ctrl+Z)">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12.5 8C9.85 8 7.45 9 5.6 10.6L2 7v9h9l-3.62-3.62A8.001 8.001 0 0120.54 17H22.5A10 10 0 0012.5 8z" fill="currentColor"/></svg>
