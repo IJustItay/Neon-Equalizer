@@ -11,6 +11,8 @@
     "squiglink",
     "headphone-eq",
     "audio-dsp",
+    "vst-plugins",
+    "loudness-correction",
     "windows",
     "electron",
     "desktop-app",

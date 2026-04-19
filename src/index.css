@@ -986,6 +986,14 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
   flex-shrink: 0;
 }
 .tool-card-header svg { color: var(--cyan); opacity: 0.8; flex-shrink: 0; }
+.tool-hint,
+.tool-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  margin: 0;
+}
+.tool-empty { padding: 4px 0; }
 
 /* Convolution */
 .ir-zone {
@@ -1023,6 +1031,69 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
 .copy-routes-list, .delay-list { display: flex; flex-direction: column; gap: 4px; }
 .copy-route-row, .delay-row { display: flex; align-items: center; gap: 6px; }
 .copy-eq { font-family: var(--font-mono); color: var(--text-muted); font-size: 12px; }
+
+/* VST plugins and loudness */
+.vst-plugin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.vst-plugin-row {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--bg-border);
+  border-radius: var(--radius-md);
+  background: var(--bg1);
+}
+.vst-plugin-top,
+.vst-plugin-path-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vst-plugin-top { justify-content: space-between; }
+.vst-enable { font-size: 11px; }
+.vst-library { min-width: 0; }
+.vst-browse {
+  height: 27px;
+  padding: 0 9px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.vst-parameters {
+  height: 52px;
+  min-height: 52px;
+  resize: vertical;
+  padding-top: 7px;
+  line-height: 1.35;
+}
+.loudness-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.loudness-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.loudness-field span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.loudness-field b {
+  color: var(--cyan);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+}
 
 .w-full { width: 100%; justify-content: center; }
 

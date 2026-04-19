@@ -31,6 +31,8 @@ export function parseConfig(text) {
     convolution: null,
     delays: [],
     copies: [],
+    vstPlugins: [],
+    loudnessCorrection: null,
     includes: [],
     conditionals: [],
     evals: [],
@@ -51,6 +53,20 @@ export function parseConfig(text) {
 
     // Comments
     if (line.startsWith('#')) {
+      const commentedCommand = line.replace(/^#\s*/, '');
+      const commentedColonIdx = commentedCommand.indexOf(':');
+      if (commentedColonIdx !== -1) {
+        const commentedCmd = commentedCommand.substring(0, commentedColonIdx).trim().toLowerCase();
+        const commentedParams = commentedCommand.substring(commentedColonIdx + 1).trim();
+        if (commentedCmd === 'vstplugin') {
+          config.vstPlugins.push({ ...parseVSTPlugin(commentedParams, i), enabled: false });
+          continue;
+        }
+        if (commentedCmd === 'loudnesscorrection') {
+          config.loudnessCorrection = { ...parseLoudnessCorrection(commentedParams, i), enabled: false };
+          continue;
+        }
+      }
       config.comments.push({ line: i, text: line });
       continue;
     }
@@ -108,6 +124,14 @@ export function parseConfig(text) {
 
       case 'copy':
         config.copies.push(...parseCopy(params));
+        break;
+
+      case 'vstplugin':
+        config.vstPlugins.push(parseVSTPlugin(params, i));
+        break;
+
+      case 'loudnesscorrection':
+        config.loudnessCorrection = parseLoudnessCorrection(params, i);
         break;
 
       case 'if':
@@ -296,6 +320,60 @@ function parseCopy(params) {
     copies.push({ target, expression, enabled: true });
   }
   return copies;
+}
+
+/**
+ * Parse VSTPlugin settings from Equalizer APO.
+ * Syntax: VSTPlugin: Library <dll path> [ChunkData "..."] [Param Value ...]
+ */
+function parseVSTPlugin(params, line) {
+  const libraryMatch = String(params || '').match(/\bLibrary\s+(?:"((?:[^"]|"")*)"|(\S+))/i);
+  const library = libraryMatch ? (libraryMatch[1] || libraryMatch[2] || '').replace(/""/g, '"') : '';
+  const parameters = libraryMatch
+    ? `${params.slice(0, libraryMatch.index)}${params.slice(libraryMatch.index + libraryMatch[0].length)}`.trim()
+    : String(params || '').trim();
+
+  return {
+    library,
+    parameters,
+    enabled: true,
+    line
+  };
+}
+
+/**
+ * Parse Equalizer APO loudness correction parameters.
+ * Syntax: LoudnessCorrection: State 1 ReferenceLevel 75 ReferenceOffset 0 Attenuation 1
+ */
+function parseLoudnessCorrection(params, line) {
+  const parts = splitApoArgs(params);
+  const values = new Map();
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    values.set(parts[i].toLowerCase(), parts[i + 1]);
+  }
+
+  const state = parseInt(values.get('state') ?? '1', 10);
+  const referenceLevel = parseInt(values.get('referencelevel') ?? '75', 10);
+  const referenceOffset = parseInt(values.get('referenceoffset') ?? '0', 10);
+  const attenuation = parseApoNumber(values.get('attenuation') ?? '1');
+
+  return {
+    enabled: state !== 0,
+    referenceLevel: Number.isFinite(referenceLevel) ? referenceLevel : 75,
+    referenceOffset: Number.isFinite(referenceOffset) ? referenceOffset : 0,
+    attenuation: Number.isFinite(attenuation) ? Math.min(1, Math.max(0, attenuation)) : 1,
+    line
+  };
+}
+
+function splitApoArgs(text) {
+  const parts = [];
+  const regex = /"((?:[^"]|"")*)"|(\S+)/g;
+  let match;
+  while ((match = regex.exec(text || '')) !== null) {
+    parts.push(match[1] !== undefined ? match[1].replace(/""/g, '"') : match[2]);
+  }
+  return parts;
 }
 
 /**

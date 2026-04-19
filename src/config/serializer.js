@@ -125,8 +125,33 @@ export function serializeConfig(config) {
     lines.push('');
   }
 
-  // Preserve APO commands this UI does not yet edit directly, such as VSTPlugin
-  // or LoudnessCorrection, instead of silently dropping them on save.
+  // VST plugins
+  const vstPlugins = (config.vstPlugins || []).filter(plugin => plugin.library || plugin.parameters);
+  if (vstPlugins.length > 0) {
+    lines.push('# VST Plugins');
+    for (const plugin of vstPlugins) {
+      const prefix = plugin.enabled === false ? '# ' : '';
+      const params = plugin.parameters ? ` ${plugin.parameters.trim()}` : '';
+      lines.push(`${prefix}VSTPlugin: Library ${quoteApoArg(plugin.library || '')}${params}`);
+    }
+    lines.push('');
+  }
+
+  // Loudness Correction
+  if (config.loudnessCorrection) {
+    const loudness = config.loudnessCorrection;
+    lines.push('# Loudness Correction');
+    lines.push(
+      `LoudnessCorrection: State ${loudness.enabled === false ? 0 : 1}` +
+      ` ReferenceLevel ${toApoInt(loudness.referenceLevel, 75)}` +
+      ` ReferenceOffset ${toApoInt(loudness.referenceOffset, 0)}` +
+      ` Attenuation ${formatApoNumber(clampNumber(loudness.attenuation, 0, 1, 1))}`
+    );
+    lines.push('');
+  }
+
+  // Preserve APO commands this UI does not yet edit directly instead of
+  // silently dropping them on save.
   if (config.unsupportedLines && config.unsupportedLines.length > 0) {
     lines.push('# Preserved APO commands');
     for (const entry of config.unsupportedLines) {
@@ -188,6 +213,28 @@ function serializeDelay(delay) {
   return `Delay: ${delay.value.toFixed(1)} ms`;
 }
 
+function quoteApoArg(value) {
+  const str = String(value || '');
+  if (!str) return '""';
+  if (!/[\s"]/g.test(str)) return str;
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
+function toApoInt(value, fallback) {
+  const num = Number(value);
+  return Number.isFinite(num) ? Math.round(num) : fallback;
+}
+
+function clampNumber(value, min, max, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, num));
+}
+
+function formatApoNumber(value) {
+  return Number(value).toFixed(3).replace(/\.?0+$/, '');
+}
+
 /**
  * Create a default empty configuration
  */
@@ -202,6 +249,8 @@ export function createDefaultConfig() {
     convolution: null,
     delays: [],
     copies: [],
+    vstPlugins: [],
+    loudnessCorrection: null,
     includes: [],
     conditionals: [],
     evals: [],

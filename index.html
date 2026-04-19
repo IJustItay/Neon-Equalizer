@@ -517,6 +517,46 @@
           </div>
         </div>
 
+        <!-- VST Plugins -->
+        <div class="tool-card">
+          <div class="tool-card-header">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 17h3V7H4v10zm6 0h4V3h-4v14zm7 0h3v-7h-3v7z" fill="currentColor" opacity=".75"/><path d="M3 20h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".35"/></svg>
+            <span>VST Plugins</span>
+          </div>
+          <p class="tool-hint">Load Equalizer APO VST DLL effects and optional parameter text.</p>
+          <div id="vst-plugin-list" class="vst-plugin-list"></div>
+          <button class="btn-ghost w-full" id="btn-add-vst">+ Add VST Plugin</button>
+        </div>
+
+        <!-- Loudness Correction -->
+        <div class="tool-card">
+          <div class="tool-card-header">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 14h3l3 4V6l-3 4H4v4z" fill="currentColor" opacity=".7"/><path d="M14 8c1.8 1.6 1.8 6.4 0 8M17 5c3.6 3.4 3.6 10.6 0 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".55"/></svg>
+            <span>Loudness Correction</span>
+          </div>
+          <label class="toggle-label">
+            <input type="checkbox" id="loudness-enabled">
+            <span class="toggle-switch"></span>
+            Enabled
+          </label>
+          <div class="loudness-grid">
+            <label class="loudness-field">
+              <span>Reference level</span>
+              <input type="number" id="loud-ref-level" class="filter-input" value="75" step="1">
+            </label>
+            <label class="loudness-field">
+              <span>Reference offset</span>
+              <input type="number" id="loud-ref-offset" class="filter-input" value="0" step="1">
+            </label>
+          </div>
+          <label class="loudness-field">
+            <span>Attenuation <b id="loud-attenuation-value">1.00</b></span>
+            <input type="range" id="loud-attenuation-range" class="mini-slider" min="0" max="1" step="0.01" value="1">
+            <input type="number" id="loud-attenuation" class="filter-input" min="0" max="1" step="0.01" value="1">
+          </label>
+          <button class="btn-ghost w-full" id="btn-reset-loudness">Reset Loudness Defaults</button>
+        </div>
+
         <!-- Channel Routing -->
         <div class="tool-card">
           <div class="tool-card-header">

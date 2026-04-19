@@ -27,7 +27,7 @@
 
 ## What Is Neon Equalizer?
 
-Neon Equalizer is a desktop audio tuning app for Windows. It gives Equalizer APO users a cleaner interface for headphone EQ, speaker correction, parametric filters, AutoEQ-style workflows, Squiglink measurements, and quick A/B previewing before saving changes to APO.
+Neon Equalizer is a desktop audio tuning app for Windows. It gives Equalizer APO users a cleaner interface for headphone EQ, speaker correction, parametric filters, VST plugin chains, loudness correction, AutoEQ-style workflows, Squiglink measurements, and quick A/B previewing before saving changes to APO.
 
 Useful for headphone EQ, IEM tuning, speaker correction, gaming audio profiles, music presets, and anyone who wants a modern GUI for Equalizer APO config files.
 
@@ -60,12 +60,14 @@ Checksums are available in [SHA256SUMS.txt](https://github.com/IJustItay/Neon-Eq
 - Squiglink integration for headphone measurements and targets.
 - EQ preview player with pink noise, white noise, and audio-file playback.
 - Config import/export for Equalizer APO text files.
+- VST plugin entries for Equalizer APO `.dll` effects.
+- Loudness Correction controls for APO reference level, offset, and attenuation.
 - Presets, undo/redo, clipping protection, target customization, and tray access.
 - Neon app icon, favicon, and Windows `.ico` assets generated from one SVG source.
 
 ## Keywords
 
-`equalizer apo`, `windows equalizer`, `parametric eq`, `headphone eq`, `autoeq`, `squiglink`, `audio dsp`, `electron app`, `portable windows app`, `iem tuning`, `speaker correction`, `eq presets`
+`equalizer apo`, `windows equalizer`, `parametric eq`, `headphone eq`, `vst plugins`, `loudness correction`, `autoeq`, `squiglink`, `audio dsp`, `electron app`, `portable windows app`, `iem tuning`, `speaker correction`, `eq presets`
 
 ## Build From Source
 

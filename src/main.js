@@ -1674,6 +1674,8 @@ function initTracePanel() {
 // ═══════════════════════════════════════════════════════════
 function initToolsPanel() {
   initConvolution();
+  initVSTPlugins();
+  initLoudnessCorrection();
   initChannelRouting();
   initDelay();
   initEffects();
@@ -1708,6 +1710,175 @@ function setConvolutionFile(filePath) {
   document.getElementById('ir-filepath').textContent  = filePath;
   document.getElementById('ir-enabled').checked = true;
   markDirty();
+}
+
+function initVSTPlugins() {
+  document.getElementById('btn-add-vst')?.addEventListener('click', () => {
+    if (!Array.isArray(appState.config.vstPlugins)) appState.config.vstPlugins = [];
+    appState.config.vstPlugins.push({ library: '', parameters: '', enabled: true });
+    renderVSTPlugins();
+    markDirty();
+  });
+}
+
+function renderVSTPlugins() {
+  const container = document.getElementById('vst-plugin-list');
+  if (!container) return;
+
+  const plugins = Array.isArray(appState.config.vstPlugins) ? appState.config.vstPlugins : [];
+  container.innerHTML = '';
+
+  if (plugins.length === 0) {
+    container.innerHTML = '<div class="tool-empty">No VST plugins configured</div>';
+    return;
+  }
+
+  for (let i = 0; i < plugins.length; i++) {
+    const plugin = plugins[i];
+    const row = document.createElement('div');
+    row.className = 'vst-plugin-row';
+    row.innerHTML = `
+      <div class="vst-plugin-top">
+        <label class="toggle-label vst-enable">
+          <input type="checkbox" ${plugin.enabled === false ? '' : 'checked'}>
+          <span class="toggle-switch"></span>
+          Active
+        </label>
+        <button class="filter-delete" title="Remove">x</button>
+      </div>
+      <div class="vst-plugin-path-row">
+        <input type="text" class="filter-input vst-library" value="${escapeHtml(plugin.library || '')}" placeholder="C:\\VSTPlugins\\effect.dll">
+        <button class="btn-ghost vst-browse" type="button">Browse</button>
+      </div>
+      <textarea class="filter-input vst-parameters" placeholder='Optional APO parameters, e.g. ChunkData "..."'>${escapeHtml(plugin.parameters || '')}</textarea>
+    `;
+
+    row.querySelector('.vst-enable input').addEventListener('change', e => {
+      plugin.enabled = e.target.checked;
+      markDirty();
+    });
+    row.querySelector('.vst-library').addEventListener('input', e => {
+      plugin.library = e.target.value;
+      markDirty();
+    });
+    row.querySelector('.vst-parameters').addEventListener('input', e => {
+      plugin.parameters = e.target.value;
+      markDirty();
+    });
+    row.querySelector('.vst-browse').addEventListener('click', async () => {
+      const file = await selectFile({
+        filters: [
+          { name: 'VST Plugins', extensions: ['dll'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      });
+      if (!file) return;
+      plugin.library = file;
+      renderVSTPlugins();
+      markDirty();
+    });
+    row.querySelector('.filter-delete').addEventListener('click', () => {
+      plugins.splice(i, 1);
+      renderVSTPlugins();
+      markDirty();
+    });
+
+    container.appendChild(row);
+  }
+}
+
+function initLoudnessCorrection() {
+  document.getElementById('loudness-enabled')?.addEventListener('change', e => {
+    const loudness = ensureLoudnessCorrection(e.target.checked);
+    loudness.enabled = e.target.checked;
+    renderLoudnessCorrection();
+    markDirty();
+  });
+
+  ['loud-ref-level', 'loud-ref-offset'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', () => {
+      updateLoudnessFromInputs();
+    });
+  });
+
+  document.getElementById('loud-attenuation-range')?.addEventListener('input', e => {
+    setLoudnessAttenuation(e.target.value);
+  });
+  document.getElementById('loud-attenuation')?.addEventListener('input', e => {
+    setLoudnessAttenuation(e.target.value);
+  });
+  document.getElementById('btn-reset-loudness')?.addEventListener('click', () => {
+    appState.config.loudnessCorrection = {
+      enabled: true,
+      referenceLevel: 75,
+      referenceOffset: 0,
+      attenuation: 1
+    };
+    renderLoudnessCorrection();
+    markDirty();
+  });
+}
+
+function ensureLoudnessCorrection(enabled = true) {
+  if (!appState.config.loudnessCorrection) {
+    appState.config.loudnessCorrection = {
+      enabled,
+      referenceLevel: parseInt(document.getElementById('loud-ref-level')?.value || '75', 10),
+      referenceOffset: parseInt(document.getElementById('loud-ref-offset')?.value || '0', 10),
+      attenuation: clamp(parseFloat(document.getElementById('loud-attenuation')?.value || '1'), 0, 1)
+    };
+  }
+  return appState.config.loudnessCorrection;
+}
+
+function updateLoudnessFromInputs() {
+  const enabled = document.getElementById('loudness-enabled')?.checked ?? true;
+  const loudness = ensureLoudnessCorrection(enabled);
+  loudness.enabled = enabled;
+  loudness.referenceLevel = parseInt(document.getElementById('loud-ref-level')?.value || '75', 10) || 0;
+  loudness.referenceOffset = parseInt(document.getElementById('loud-ref-offset')?.value || '0', 10) || 0;
+  loudness.attenuation = clamp(parseFloat(document.getElementById('loud-attenuation')?.value || '1'), 0, 1);
+  renderLoudnessCorrection();
+  markDirty();
+}
+
+function setLoudnessAttenuation(value) {
+  const enabled = document.getElementById('loudness-enabled')?.checked ?? true;
+  const loudness = ensureLoudnessCorrection(enabled);
+  loudness.enabled = enabled;
+  loudness.attenuation = clamp(parseFloat(value), 0, 1);
+  renderLoudnessCorrection();
+  markDirty();
+}
+
+function renderLoudnessCorrection() {
+  const loudness = appState.config.loudnessCorrection || {
+    enabled: false,
+    referenceLevel: 75,
+    referenceOffset: 0,
+    attenuation: 1
+  };
+  const attenuation = clamp(Number(loudness.attenuation), 0, 1);
+
+  const enabledEl = document.getElementById('loudness-enabled');
+  const refLevelEl = document.getElementById('loud-ref-level');
+  const refOffsetEl = document.getElementById('loud-ref-offset');
+  const attenRangeEl = document.getElementById('loud-attenuation-range');
+  const attenEl = document.getElementById('loud-attenuation');
+  const attenValueEl = document.getElementById('loud-attenuation-value');
+
+  if (enabledEl) enabledEl.checked = loudness.enabled === true;
+  if (refLevelEl) refLevelEl.value = Number.isFinite(Number(loudness.referenceLevel)) ? loudness.referenceLevel : 75;
+  if (refOffsetEl) refOffsetEl.value = Number.isFinite(Number(loudness.referenceOffset)) ? loudness.referenceOffset : 0;
+  if (attenRangeEl) attenRangeEl.value = attenuation;
+  if (attenEl) attenEl.value = attenuation;
+  if (attenValueEl) attenValueEl.textContent = attenuation.toFixed(2);
+}
+
+function clamp(value, min, max) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return max;
+  return Math.min(max, Math.max(min, num));
 }
 
 function initChannelRouting() {
@@ -1992,7 +2163,9 @@ function applyConfigObject(config, rawText = null) {
     ...createDefaultConfig(),
     ...config,
     filters: Array.isArray(config.filters) ? config.filters : [],
-    graphicEQ: config.graphicEQ || null
+    graphicEQ: config.graphicEQ || null,
+    vstPlugins: Array.isArray(config.vstPlugins) ? config.vstPlugins : [],
+    loudnessCorrection: config.loudnessCorrection || null
   };
 
   try {
@@ -2036,6 +2209,8 @@ function applyConfigObject(config, rawText = null) {
   renderIncludes();
   renderCopyRoutes();
   renderDelays();
+  renderVSTPlugins();
+  renderLoudnessCorrection();
 
   document.getElementById('raw-config-editor').value = rawText || serializeConfig(appState.config);
 
@@ -2186,6 +2361,8 @@ function refreshUI() {
   syncGraphicEQControls();
   renderCopyRoutes();
   renderDelays();
+  renderVSTPlugins();
+  renderLoudnessCorrection();
   renderIncludes();
   updateFilterCount();
 }
