@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, globalShortcut, nativeImage, clipboard, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 
 const APP_NAME = 'Neon Equalizer';
 const LEGACY_APP_NAMES = ['Equalizer APO Studio', 'equalizer-apo-studio'];
@@ -75,6 +75,81 @@ function isTrustedAppOrigin(origin = '') {
     origin.startsWith('file://') ||
     origin.startsWith('http://localhost:5173') ||
     origin.startsWith('http://127.0.0.1:5173');
+}
+
+function listWindowsAudioDevices() {
+  if (process.platform !== 'win32') return [];
+
+  const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+$roots = @(
+  @{ Path = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render'; Flow = 'playback'; FlowLabel = 'Playback' },
+  @{ Path = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture'; Flow = 'recording'; FlowLabel = 'Recording' }
+)
+$nameKeys = @(
+  '{b3f8fa53-0004-438e-9003-51a46e139bfc6},6',
+  '{a45c254e-df1c-4efd-8020-67d146a850e0},14',
+  '{a45c254e-df1c-4efd-8020-67d146a850e0},2'
+)
+$devices = foreach ($root in $roots) {
+  if (-not (Test-Path -LiteralPath $root.Path)) { continue }
+  foreach ($item in Get-ChildItem -LiteralPath $root.Path) {
+    $deviceProps = Get-ItemProperty -LiteralPath $item.PSPath
+    $propertyPath = Join-Path $item.PSPath 'Properties'
+    if (-not (Test-Path -LiteralPath $propertyPath)) { continue }
+    $props = Get-ItemProperty -LiteralPath $propertyPath
+    $endpointNameProp = $props.PSObject.Properties | Where-Object { $_.Name -eq '{a45c254e-df1c-4efd-8020-67d146a850e0},2' } | Select-Object -First 1
+    $driverNameProp = $props.PSObject.Properties | Where-Object { $_.Name -eq '{b3f8fa53-0004-438e-9003-51a46e139bfc},6' } | Select-Object -First 1
+    $endpointName = if ($endpointNameProp -and $endpointNameProp.Value) { [string]$endpointNameProp.Value } else { $null }
+    $driverName = if ($driverNameProp -and $driverNameProp.Value) { [string]$driverNameProp.Value } else { $null }
+    $name = if ($endpointName -and $driverName -and $endpointName -notlike "*$driverName*") { "$endpointName ($driverName)" } else { $endpointName }
+    if (-not $name) {
+      foreach ($key in $nameKeys) {
+        $prop = $props.PSObject.Properties | Where-Object { $_.Name -eq $key } | Select-Object -First 1
+        if ($prop -and $prop.Value) {
+          $name = [string]$prop.Value
+          break
+        }
+      }
+    }
+    if (-not $name) { continue }
+    $guid = $null
+    if ($item.PSChildName -match '\\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\}$') {
+      $guid = $Matches[0]
+    }
+    $apoValue = if ($guid) { "$name $guid" } else { $name }
+    [pscustomobject]@{
+      id = $item.PSChildName
+      name = $name
+      guid = $guid
+      apoValue = $apoValue
+      flow = $root.Flow
+      flowLabel = $root.FlowLabel
+      state = [int]($deviceProps.DeviceState)
+      active = ([int]($deviceProps.DeviceState) -eq 1)
+    }
+  }
+}
+$devices | Sort-Object flowLabel, name | ConvertTo-Json -Depth 4
+`;
+
+  try {
+    const output = execFileSync('powershell.exe', [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-Command',
+      script
+    ], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+
+    const trimmed = output.trim();
+    if (!trimmed) return [];
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch (e) {
+    console.warn('Audio device enumeration failed:', e.message);
+    return [];
+  }
 }
 
 // Auto-detect Equalizer APO config path
@@ -315,6 +390,11 @@ ipcMain.handle('fetch-url-text', async (event, url, options = {}) => {
     if (timeout) clearTimeout(timeout);
   }
 });
+
+ipcMain.handle('list-audio-devices', async () => ({
+  ok: true,
+  devices: listWindowsAudioDevices()
+}));
 
 ipcMain.handle('capture-region-image', async (event, rect = {}, options = {}) => {
   try {

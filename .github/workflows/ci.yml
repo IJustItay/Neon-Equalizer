@@ -1,0 +1,50 @@
+name: Neon Equalizer CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: Verify on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-2022, ubuntu-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check Electron shell syntax
+        run: node --check electron/main.js && node --check electron/preload.js
+
+      - name: Generate icons
+        run: npm run icons
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Windows audio endpoint smoke check
+        if: startsWith(matrix.os, 'windows')
+        shell: pwsh
+        run: |
+          $renderPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render'
+          $capturePath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Capture'
+          if (-not (Test-Path -LiteralPath $renderPath) -and -not (Test-Path -LiteralPath $capturePath)) {
+            throw 'Windows audio endpoint registry paths are not readable.'
+          }
+          Write-Host 'Windows audio endpoint registry paths are readable.'

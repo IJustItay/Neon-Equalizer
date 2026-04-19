@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('apoAPI', {
   selectConfigDir: () => ipcRenderer.invoke('select-config-dir'),
   listConfigFiles: (dirPath) => ipcRenderer.invoke('list-config-files', dirPath),
   fetchText: (url, options) => ipcRenderer.invoke('fetch-url-text', url, options),
+  listAudioDevices: () => ipcRenderer.invoke('list-audio-devices'),
   captureRegionImage: (rect, options) => ipcRenderer.invoke('capture-region-image', rect, options),
   openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
   savePreset: (name, content) => ipcRenderer.invoke('save-preset', name, content),

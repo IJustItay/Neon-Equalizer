@@ -70,6 +70,8 @@
         <select id="device-select" class="select-sm device-select" title="Target device preset">
           <option value="all">All Devices</option>
         </select>
+        <button class="device-profile-btn device-icon-btn" id="btn-device-refresh" title="Refresh Windows audio devices">↻</button>
+        <button class="device-profile-btn" id="btn-device-custom" title="Type a custom Equalizer APO Device line">Custom</button>
         <button class="device-profile-btn" id="btn-device-save-preset" title="Save current EQ as the selected device preset">Preset</button>
         <label class="device-auto-switch" title="Load a saved EQ preset when the selected device changes">
           <input type="checkbox" id="device-auto-switch-enabled">
@@ -174,6 +176,11 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M21 6.5A4.5 4.5 0 0016.5 2h-9A4.5 4.5 0 003 6.5v11A4.5 4.5 0 007.5 22h9a4.5 4.5 0 004.5-4.5v-11z" stroke="currentColor" stroke-width="1.5" fill="none" opacity=".5"/><path d="M7 15l3-4 2 3 2-5 3 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       FR Tracer
     </button>
+    <button class="tab" data-tab="about" id="tab-about">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M11 17h2v-6h-2v6zm1-14a9 9 0 100 18 9 9 0 000-18zm0 16.2A7.2 7.2 0 1112 4.8a7.2 7.2 0 010 14.4zM11 9h2V7h-2v2z" fill="currentColor"/></svg>
+      About
+      <span class="tab-badge" id="update-tab-badge" style="display:none;">Update</span>
+    </button>
   </div>
 
   <!-- ══ Panel Area ═════════════════════════════════════════════ -->
@@ -218,6 +225,20 @@
         <button class="btn-ghost" id="btn-quick-save" title="Save current EQ as a local preset">Save EQ</button>
         <button class="btn-ghost danger-soft" id="btn-quick-delete" title="Delete selected local preset">Delete</button>
       </div>
+      <div class="eq-history-bar" data-eq-history-mode="parametric">
+        <span class="eq-history-title">Parametric History</span>
+        <button class="btn-ghost" data-snapshot-action="save">Snapshot</button>
+        <select class="select-sm eq-snapshot-select" data-snapshot-select="parametric">
+          <option value="">No snapshots yet</option>
+        </select>
+        <button class="btn-ghost" data-snapshot-action="restore">Restore</button>
+        <button class="btn-ghost danger-soft" data-snapshot-action="delete">Delete</button>
+        <span class="eq-history-divider"></span>
+        <button class="btn-ghost" data-ab-action="capture-a">Set A</button>
+        <button class="btn-ghost" data-ab-action="capture-b">Set B</button>
+        <button class="btn-accent eq-ab-toggle" data-ab-action="toggle">A/B</button>
+        <span class="eq-ab-status" data-ab-status="parametric">A/B slots empty</span>
+      </div>
       <div class="filter-table">
         <div class="filter-header">
           <span class="fh fh-toggle">EN</span>
@@ -258,6 +279,20 @@
         <button class="btn-ghost" id="btn-graphic-smooth" title="Smooth adjacent bands">Smooth</button>
         <button class="btn-ghost" id="btn-graphic-reset">Reset All</button>
         <span class="toolbar-hint">0.5 dB steps, double-click a slider to reset one band.</span>
+      </div>
+      <div class="eq-history-bar" data-eq-history-mode="graphic">
+        <span class="eq-history-title">Graphic History</span>
+        <button class="btn-ghost" data-snapshot-action="save">Snapshot</button>
+        <select class="select-sm eq-snapshot-select" data-snapshot-select="graphic">
+          <option value="">No snapshots yet</option>
+        </select>
+        <button class="btn-ghost" data-snapshot-action="restore">Restore</button>
+        <button class="btn-ghost danger-soft" data-snapshot-action="delete">Delete</button>
+        <span class="eq-history-divider"></span>
+        <button class="btn-ghost" data-ab-action="capture-a">Set A</button>
+        <button class="btn-ghost" data-ab-action="capture-b">Set B</button>
+        <button class="btn-accent eq-ab-toggle" data-ab-action="toggle">A/B</button>
+        <span class="eq-ab-status" data-ab-status="graphic">A/B slots empty</span>
       </div>
       <div id="graphic-eq-container" class="graphic-eq-container"></div>
       </div>
@@ -743,6 +778,75 @@
           </div>
         </div>
 
+      </div>
+    </div>
+
+    <!-- ── About / Updates ───────────────────────────────────── -->
+    <div class="panel" id="panel-about">
+      <div class="about-layout">
+        <section class="about-hero">
+          <img src="./icon.svg" alt="Neon Equalizer logo" class="about-logo">
+          <div class="about-copy">
+            <span class="about-kicker">Equalizer APO control center</span>
+            <h2>Neon Equalizer</h2>
+            <p>Parametric EQ, GraphicEQ, AutoEQ, Squiglink targets, VST plugins, loudness correction, and hardware PEQ tools in one desktop app.</p>
+            <div class="about-actions">
+              <button class="btn-accent" id="btn-about-github">GitHub Repository</button>
+              <button class="btn-ghost" id="btn-about-releases">Releases</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="about-grid">
+          <div class="about-card update-card">
+            <div class="about-card-head">
+              <span>Updates</span>
+              <span class="about-pill" id="about-update-pill">Auto check enabled</span>
+            </div>
+            <div class="update-version-row">
+              <span>Current</span>
+              <strong id="about-current-version">0.0.0</strong>
+            </div>
+            <div class="update-version-row">
+              <span>Latest GitHub</span>
+              <strong id="about-latest-version">Checking...</strong>
+            </div>
+            <p class="about-muted" id="about-update-status">Neon Equalizer checks GitHub automatically on startup and while the app is open.</p>
+            <div class="about-actions">
+              <button class="btn-accent" id="btn-check-updates">Check Now</button>
+              <button class="btn-primary" id="btn-download-update" style="display:none;">Download Update</button>
+            </div>
+          </div>
+
+          <div class="about-card">
+            <div class="about-card-head">
+              <span>Build</span>
+              <span class="about-pill">Windows</span>
+            </div>
+            <dl class="about-facts">
+              <div><dt>Version</dt><dd id="about-version-detail">0.0.0</dd></div>
+              <div><dt>Repository</dt><dd>IJustItay/Neon-Equalizer</dd></div>
+              <div><dt>Engine</dt><dd>Equalizer APO</dd></div>
+            </dl>
+          </div>
+
+          <div class="about-card about-wide">
+            <div class="about-card-head">
+              <span>What is inside</span>
+              <span class="about-pill">Neon stack</span>
+            </div>
+            <div class="about-feature-list">
+              <span>Parametric filters</span>
+              <span>GraphicEQ bands</span>
+              <span>AutoEQ optimizer</span>
+              <span>Squiglink browser</span>
+              <span>VST plugins</span>
+              <span>Loudness correction</span>
+              <span>Device PEQ</span>
+              <span>Snapshots and A/B</span>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
 

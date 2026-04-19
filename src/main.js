@@ -8,6 +8,7 @@ import { serializeConfig, createDefaultConfig } from './config/serializer.js';
 import { FrequencyGraph } from './components/frequencyGraph.js';
 import { ParametricEQ } from './components/parametricEQ.js';
 import { GraphicEQ } from './components/graphicEQ.js';
+import appPackage from '../package.json';
 import * as SquigDB from './components/squiglinkDB.js';
 import { AudioPlayer } from './components/audioPlayer.js';
 import { devicePeq } from './components/devicePeq/index.js';
@@ -43,9 +44,18 @@ const AUTO_APPLY_DELAY_MS = 650;
 let autoApplyTimer = null;
 let autoApplyInFlight = false;
 let autoApplyPending = false;
+let latestUpdateRelease = null;
+let apoAudioDevices = [];
 const AUTO_SAVE_APO_KEY = 'neon-equalizer:auto-save-apo';
 const DEVICE_PRESETS_KEY = 'neon-equalizer:device-presets:v1';
 const DEVICE_AUTO_SWITCH_KEY = 'neon-equalizer:device-auto-switch';
+const APP_VERSION = appPackage.version || '0.0.0';
+const GITHUB_REPO_URL = 'https://github.com/IJustItay/Neon-Equalizer';
+const GITHUB_RELEASES_API = 'https://api.github.com/repos/IJustItay/Neon-Equalizer/releases/latest';
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const EQ_SNAPSHOT_KEY = 'neon-equalizer:eq-snapshots:v1';
+const EQ_AB_KEY = 'neon-equalizer:eq-ab:v1';
+const EQ_SNAPSHOT_LIMIT = 24;
 
 // ─── Target Customizer State ──────────────────────────────────
 let tcState = { ...TARGET_ADJUSTMENT_DEFAULTS };
@@ -70,6 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initGraphicEQ();
   initEQModeSelector();
   initQuickPresets();
+  initEQSnapshotHistory();
   initAutoEQPanel();
   initTargetPicker();
   initTargetCustomizer();
@@ -77,6 +88,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initToolsPanel();
   initHIDPanel();
   initAdvancedPanel();
+  initAboutPanel();
+  initUpdateChecker();
   detectAPO();
   updateStatus('Ready');
 });
@@ -559,29 +572,32 @@ function initDeviceSelector() {
   if (!select) return;
 
   renderDeviceSelector(appState.config.device || 'all');
+  refreshAudioDeviceOptions({ silent: true });
 
   select.addEventListener('change', () => {
-    const deviceKey = select.value || 'all';
+    const selected = getSelectedDeviceChoice();
+    const deviceKey = normalizeDevicePresetKey(selected.value);
     const profile = getDevicePresets()[deviceKey];
-    const deviceName = profile?.name || deviceKey;
 
     if (getDeviceAutoSwitchEnabled() && profile?.config) {
       pushUndo();
       const nextConfig = JSON.parse(JSON.stringify(profile.config));
-      nextConfig.device = deviceKey === 'all' ? null : deviceName;
+      nextConfig.device = selected.value === 'all' ? null : selected.value;
       applyConfigObject(nextConfig);
-      renderDeviceSelector(deviceKey);
+      renderDeviceSelector(selected.value);
       markDirty();
-      showToast(`Loaded device preset: ${deviceName}`, 'success');
+      showToast(`Loaded device preset: ${profile.name || selected.label}`, 'success');
       return;
     }
 
-    appState.config.device = deviceKey === 'all' ? null : deviceName;
+    appState.config.device = selected.value === 'all' ? null : selected.value;
     updateRawConfigEditor();
     markDirty();
   });
 
   document.getElementById('btn-device-save-preset')?.addEventListener('click', saveCurrentDevicePreset);
+  document.getElementById('btn-device-refresh')?.addEventListener('click', () => refreshAudioDeviceOptions({ silent: false }));
+  document.getElementById('btn-device-custom')?.addEventListener('click', addCustomDeviceSelection);
 
   const autoToggle = document.getElementById('device-auto-switch-enabled');
   if (autoToggle) {
@@ -593,7 +609,7 @@ function initDeviceSelector() {
   }
 
   navigator.mediaDevices?.addEventListener?.('devicechange', () => {
-    renderDeviceSelector(select.value || appState.config.device || 'all');
+    refreshAudioDeviceOptions({ silent: true });
   });
 }
 
@@ -626,6 +642,26 @@ function setDeviceAutoSwitchEnabled(enabled) {
   }
 }
 
+async function refreshAudioDeviceOptions({ silent = true } = {}) {
+  if (!window.apoAPI?.listAudioDevices) {
+    if (!silent) showToast('Device listing is available in the desktop app', 'warning');
+    return;
+  }
+
+  const select = document.getElementById('device-select');
+  const current = select?.value || appState.config.device || 'all';
+  try {
+    const result = await window.apoAPI.listAudioDevices();
+    apoAudioDevices = Array.isArray(result?.devices) ? result.devices : [];
+    renderDeviceSelector(current);
+    if (!silent) showToast(`Found ${apoAudioDevices.length} Windows audio device${apoAudioDevices.length === 1 ? '' : 's'}`, 'success');
+  } catch (err) {
+    apoAudioDevices = [];
+    renderDeviceSelector(current);
+    if (!silent) showToast(`Device refresh failed: ${err.message}`, 'error');
+  }
+}
+
 function renderDeviceSelector(preferred = null) {
   const select = document.getElementById('device-select');
   if (!select) return;
@@ -633,58 +669,125 @@ function renderDeviceSelector(preferred = null) {
   const presets = getDevicePresets();
   const names = new Map();
   for (const [key, preset] of Object.entries(presets)) {
-    if (key && key !== 'all') names.set(key, preset?.name || key);
+    if (key && key !== 'all') names.set(key, preset?.name || preset?.device || key);
   }
   if (appState.config.device && appState.config.device !== 'all') {
     const key = normalizeDevicePresetKey(appState.config.device);
     names.set(key, appState.config.device);
   }
 
-  const target = normalizeDevicePresetKey(preferred || appState.config.device || select.value || 'all');
+  const target = preferred || appState.config.device || select.value || 'all';
+  const targetKey = normalizeDevicePresetKey(target);
   select.innerHTML = '<option value="all">All Devices</option>';
 
-  for (const [key, name] of [...names.entries()].sort((a, b) => a[1].localeCompare(b[1]))) {
+  const groups = new Map();
+  for (const device of apoAudioDevices) {
+    if (!device?.apoValue) continue;
+    const groupName = device.flowLabel || (device.flow === 'recording' ? 'Recording devices' : 'Playback devices');
+    if (!groups.has(groupName)) groups.set(groupName, []);
+    groups.get(groupName).push(device);
+  }
+
+  for (const [groupName, devices] of groups.entries()) {
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = groupName;
+    for (const device of devices.sort((a, b) => String(a.name).localeCompare(String(b.name)))) {
+      const opt = document.createElement('option');
+      opt.value = device.apoValue;
+      opt.dataset.displayName = device.name || device.apoValue;
+      opt.dataset.deviceValue = device.apoValue;
+      opt.textContent = `${device.name || device.apoValue}${device.active ? '' : ' (disabled)'}`;
+      opt.title = device.apoValue;
+      optgroup.appendChild(opt);
+      names.delete(normalizeDevicePresetKey(device.apoValue));
+    }
+    select.appendChild(optgroup);
+  }
+
+  const remainingProfiles = [...names.entries()]
+    .filter(([key]) => key !== 'all')
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  if (remainingProfiles.length) {
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = 'Saved / custom devices';
+    for (const [key, name] of remainingProfiles) {
+      const opt = document.createElement('option');
+      opt.value = presets[key]?.device || key;
+      opt.dataset.displayName = name;
+      opt.dataset.deviceValue = presets[key]?.device || key;
+      opt.textContent = presets[key]?.config ? `${name} • preset` : name;
+      opt.title = presets[key]?.device || key;
+      optgroup.appendChild(opt);
+    }
+    select.appendChild(optgroup);
+  }
+
+  const hasTarget = [...select.options].some(option => normalizeDevicePresetKey(option.value) === targetKey);
+  if (!hasTarget && targetKey !== 'all') {
     const opt = document.createElement('option');
-    opt.value = key;
-    opt.textContent = presets[key]?.config ? `${name} • preset` : name;
+    opt.value = target;
+    opt.dataset.displayName = target;
+    opt.dataset.deviceValue = target;
+    opt.textContent = `${target} • current`;
+    opt.title = target;
     select.appendChild(opt);
   }
 
-  select.value = target === 'all' || names.has(target) ? target : 'all';
+  select.value = targetKey === 'all' ? 'all' : target;
 }
 
 function saveCurrentDevicePreset() {
   const select = document.getElementById('device-select');
-  const selected = select?.value || 'all';
-  let name = selected !== 'all'
-    ? (getDevicePresets()[selected]?.name || selected)
+  const selected = getSelectedDeviceChoice();
+  let displayName = selected.value !== 'all'
+    ? selected.label
     : (appState.config.device || '');
 
-  if (!name || name === 'all') {
-    name = window.prompt('Device name for this EQ preset:', '')?.trim() || '';
+  if (!displayName || displayName === 'all') {
+    displayName = window.prompt('Device name for this EQ preset:', '')?.trim() || '';
   }
-  if (!name) {
+  if (!displayName) {
     showToast('Device preset needs a name', 'warning');
     return;
   }
 
-  const key = normalizeDevicePresetKey(name);
+  const deviceValue = selected.value === 'all' ? displayName : selected.value;
+  const key = normalizeDevicePresetKey(deviceValue);
   const config = snapshotCurrentConfig();
-  config.device = name;
+  config.device = deviceValue;
 
   const presets = getDevicePresets();
   presets[key] = {
-    name,
+    name: displayName,
+    device: deviceValue,
     updatedAt: new Date().toISOString(),
     config
   };
   setDevicePresets(presets);
 
-  appState.config.device = name;
-  renderDeviceSelector(key);
+  appState.config.device = deviceValue;
+  renderDeviceSelector(deviceValue);
   updateRawConfigEditor();
   markDirty();
-  showToast(`Saved device preset: ${name}`, 'success');
+  showToast(`Saved device preset: ${displayName}`, 'success');
+}
+
+function addCustomDeviceSelection() {
+  const value = window.prompt('Equalizer APO Device value:', appState.config.device || '')?.trim() || '';
+  if (!value) return;
+  appState.config.device = value;
+  renderDeviceSelector(value);
+  updateRawConfigEditor();
+  markDirty();
+  showToast('Custom APO device selected', 'success');
+}
+
+function getSelectedDeviceChoice() {
+  const select = document.getElementById('device-select');
+  const option = select?.selectedOptions?.[0];
+  const value = option?.dataset.deviceValue || select?.value || 'all';
+  const label = option?.dataset.displayName || option?.textContent?.replace(/\s•\s.*$/, '') || value;
+  return { value, label };
 }
 
 function normalizeDevicePresetKey(value) {
@@ -696,6 +799,103 @@ function initWindowControls() {
   document.getElementById('btn-minimize')?.addEventListener('click', () => window.windowAPI?.minimize());
   document.getElementById('btn-maximize')?.addEventListener('click', () => window.windowAPI?.maximize());
   document.getElementById('btn-close')?.addEventListener('click', () => window.windowAPI?.close());
+}
+
+function initAboutPanel() {
+  document.getElementById('about-current-version')?.replaceChildren(document.createTextNode(`v${APP_VERSION}`));
+  document.getElementById('about-version-detail')?.replaceChildren(document.createTextNode(`v${APP_VERSION}`));
+
+  document.getElementById('btn-about-github')?.addEventListener('click', () => openExternalUrl(GITHUB_REPO_URL));
+  document.getElementById('btn-about-releases')?.addEventListener('click', () => openExternalUrl(`${GITHUB_REPO_URL}/releases`));
+  document.getElementById('btn-check-updates')?.addEventListener('click', () => checkForUpdates({ silent: false }));
+  document.getElementById('btn-download-update')?.addEventListener('click', () => {
+    openExternalUrl(latestUpdateRelease?.html_url || `${GITHUB_REPO_URL}/releases/latest`);
+  });
+}
+
+function initUpdateChecker() {
+  checkForUpdates({ silent: true });
+  window.setInterval(() => checkForUpdates({ silent: true }), UPDATE_CHECK_INTERVAL_MS);
+}
+
+async function checkForUpdates({ silent = false } = {}) {
+  setUpdateStatus('Checking GitHub...', 'Checking...', false);
+  try {
+    const release = await fetchLatestGitHubRelease();
+    latestUpdateRelease = release;
+    const latestVersion = normalizeVersion(release.tag_name || release.name || '');
+    const versionDelta = compareVersions(latestVersion, APP_VERSION);
+    const hasUpdate = versionDelta > 0;
+    const statusText = hasUpdate
+      ? `Update available: v${latestVersion}. Open the release to download the installer or portable build.`
+      : versionDelta < 0
+        ? `This local build is newer than the latest GitHub release. Last checked ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
+      : `You are up to date. Last checked ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`;
+
+    setUpdateStatus(statusText, latestVersion ? `v${latestVersion}` : 'Unknown', hasUpdate);
+    document.getElementById('btn-download-update')?.style.setProperty('display', hasUpdate ? '' : 'none');
+    document.getElementById('update-tab-badge')?.style.setProperty('display', hasUpdate ? '' : 'none');
+
+    if (hasUpdate && silent) showToast(`Neon Equalizer v${latestVersion} is available`, 'info');
+    if (!hasUpdate && !silent) showToast('Neon Equalizer is up to date', 'success');
+    if (hasUpdate && !silent) showToast(`Update available: v${latestVersion}`, 'info');
+  } catch (err) {
+    setUpdateStatus(`Update check failed: ${err.message}`, 'Unavailable', false);
+    if (!silent) showToast(`Update check failed: ${err.message}`, 'error');
+  }
+}
+
+async function fetchLatestGitHubRelease() {
+  if (window.apoAPI?.fetchText) {
+    const result = await window.apoAPI.fetchText(GITHUB_RELEASES_API, {
+      timeout: 10000,
+      headers: { accept: 'application/vnd.github+json' },
+      userAgent: `NeonEqualizer/${APP_VERSION}`
+    });
+    if (!result?.ok) throw new Error(result?.error || `GitHub returned ${result?.status || 'no response'}`);
+    return JSON.parse(result.text);
+  }
+
+  const response = await fetch(GITHUB_RELEASES_API, {
+    headers: { accept: 'application/vnd.github+json' }
+  });
+  if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
+  return response.json();
+}
+
+function setUpdateStatus(message, latestLabel, hasUpdate) {
+  const latest = document.getElementById('about-latest-version');
+  if (latest) latest.textContent = latestLabel;
+  const status = document.getElementById('about-update-status');
+  if (status) status.textContent = message;
+  const pill = document.getElementById('about-update-pill');
+  if (pill) {
+    pill.textContent = hasUpdate ? 'Update ready' : 'Auto check enabled';
+    pill.classList.toggle('update-ready', hasUpdate);
+  }
+}
+
+function normalizeVersion(value) {
+  return String(value || '').trim().replace(/^v/i, '').match(/\d+(?:\.\d+){0,3}/)?.[0] || '0.0.0';
+}
+
+function compareVersions(a, b) {
+  const pa = normalizeVersion(a).split('.').map(n => parseInt(n, 10) || 0);
+  const pb = normalizeVersion(b).split('.').map(n => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length, 3);
+  for (let i = 0; i < len; i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+async function openExternalUrl(url) {
+  if (window.apoAPI?.openExternalUrl) {
+    const result = await window.apoAPI.openExternalUrl(url);
+    if (result?.success) return;
+  }
+  window.open(url, '_blank', 'noopener');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1274,6 +1474,212 @@ function deleteQuickPreset() {
   setQuickPresets(getQuickPresets().filter(p => p.name !== name));
   renderQuickPresetSelect();
   showToast(`Deleted EQ preset: ${name}`, 'info');
+}
+
+function initEQSnapshotHistory() {
+  for (const mode of ['parametric', 'graphic']) {
+    document.querySelectorAll(`[data-eq-history-mode="${mode}"] [data-snapshot-action]`).forEach(btn => {
+      btn.addEventListener('click', () => handleSnapshotAction(mode, btn.dataset.snapshotAction));
+    });
+    document.querySelectorAll(`[data-eq-history-mode="${mode}"] [data-ab-action]`).forEach(btn => {
+      btn.addEventListener('click', () => handleABAction(mode, btn.dataset.abAction));
+    });
+    renderEQSnapshotControls(mode);
+  }
+}
+
+function handleSnapshotAction(mode, action) {
+  const select = document.querySelector(`[data-snapshot-select="${mode}"]`);
+  if (action === 'save') saveEQSnapshot(mode);
+  else if (action === 'restore') restoreEQSnapshot(mode, select?.value);
+  else if (action === 'delete') deleteEQSnapshot(mode, select?.value);
+}
+
+function handleABAction(mode, action) {
+  if (action === 'capture-a') saveABSlot(mode, 'a');
+  else if (action === 'capture-b') saveABSlot(mode, 'b');
+  else if (action === 'toggle') toggleABCompare(mode);
+}
+
+function getEQSnapshotStore() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EQ_SNAPSHOT_KEY) || '{}');
+    return {
+      parametric: Array.isArray(parsed.parametric) ? parsed.parametric : [],
+      graphic: Array.isArray(parsed.graphic) ? parsed.graphic : []
+    };
+  } catch {
+    return { parametric: [], graphic: [] };
+  }
+}
+
+function setEQSnapshotStore(store) {
+  localStorage.setItem(EQ_SNAPSHOT_KEY, JSON.stringify({
+    parametric: (store.parametric || []).slice(0, EQ_SNAPSHOT_LIMIT),
+    graphic: (store.graphic || []).slice(0, EQ_SNAPSHOT_LIMIT)
+  }));
+}
+
+function getABStore() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EQ_AB_KEY) || '{}');
+    return {
+      parametric: parsed.parametric || {},
+      graphic: parsed.graphic || {}
+    };
+  } catch {
+    return { parametric: {}, graphic: {} };
+  }
+}
+
+function setABStore(store) {
+  localStorage.setItem(EQ_AB_KEY, JSON.stringify(store));
+}
+
+function createEQSnapshot(mode, label = '') {
+  const now = new Date();
+  const isGraphic = mode === 'graphic';
+  return {
+    id: `${mode}_${Date.now()}`,
+    mode,
+    name: label || `${modeLabel(mode)} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+    createdAt: now.toISOString(),
+    preamp: appState.config.preamp || 0,
+    filters: isGraphic ? null : JSON.parse(JSON.stringify(appState.config.filters || [])),
+    graphicEQ: isGraphic ? JSON.parse(JSON.stringify(graphicEQ?.getConfig?.() || appState.config.graphicEQ || null)) : null
+  };
+}
+
+function snapshotSummary(snapshot) {
+  if (!snapshot) return '';
+  if (snapshot.mode === 'graphic') {
+    const bands = snapshot.graphicEQ?.bands?.length || 0;
+    return `${bands} band${bands === 1 ? '' : 's'}`;
+  }
+  const filters = snapshot.filters?.length || 0;
+  return `${filters} filter${filters === 1 ? '' : 's'}`;
+}
+
+function saveEQSnapshot(mode) {
+  const store = getEQSnapshotStore();
+  const snapshot = createEQSnapshot(mode);
+  store[mode] = [snapshot, ...(store[mode] || [])].slice(0, EQ_SNAPSHOT_LIMIT);
+  setEQSnapshotStore(store);
+  renderEQSnapshotControls(mode, snapshot.id);
+  showToast(`Saved ${modeLabel(mode)} snapshot`, 'success');
+}
+
+function restoreEQSnapshot(mode, id) {
+  const snapshot = getEQSnapshotStore()[mode]?.find(s => s.id === id);
+  if (!snapshot) {
+    showToast('Choose a snapshot first', 'warning');
+    return;
+  }
+  applyEQSnapshot(mode, snapshot);
+  showToast(`Restored ${snapshot.name}`, 'success');
+}
+
+function deleteEQSnapshot(mode, id) {
+  if (!id) {
+    showToast('Choose a snapshot to delete', 'warning');
+    return;
+  }
+  const store = getEQSnapshotStore();
+  const removed = store[mode]?.find(s => s.id === id);
+  store[mode] = (store[mode] || []).filter(s => s.id !== id);
+  setEQSnapshotStore(store);
+  renderEQSnapshotControls(mode);
+  showToast(removed ? `Deleted ${removed.name}` : 'Snapshot deleted', 'info');
+}
+
+function saveABSlot(mode, slot) {
+  const store = getABStore();
+  store[mode] = {
+    ...(store[mode] || {}),
+    [slot]: createEQSnapshot(mode, `${modeLabel(mode)} ${slot.toUpperCase()}`),
+    active: slot
+  };
+  setABStore(store);
+  renderEQSnapshotControls(mode);
+  showToast(`Set ${modeLabel(mode)} ${slot.toUpperCase()}`, 'success');
+}
+
+function toggleABCompare(mode) {
+  const store = getABStore();
+  const state = store[mode] || {};
+  if (!state.a || !state.b) {
+    showToast(`Set both ${modeLabel(mode)} A and B first`, 'warning');
+    return;
+  }
+  const nextSlot = state.active === 'a' ? 'b' : 'a';
+  state.active = nextSlot;
+  store[mode] = state;
+  setABStore(store);
+  applyEQSnapshot(mode, state[nextSlot], { fromAB: true });
+  renderEQSnapshotControls(mode);
+  showToast(`${modeLabel(mode)} ${nextSlot.toUpperCase()}`, 'info');
+}
+
+function applyEQSnapshot(mode, snapshot, options = {}) {
+  if (!snapshot) return;
+  pushUndo();
+  const nextConfig = snapshotCurrentConfig();
+  nextConfig.preamp = snapshot.preamp ?? nextConfig.preamp;
+  if (mode === 'graphic') {
+    nextConfig.graphicEQ = snapshot.graphicEQ ? JSON.parse(JSON.stringify(snapshot.graphicEQ)) : null;
+  } else {
+    nextConfig.filters = JSON.parse(JSON.stringify(snapshot.filters || []));
+  }
+  applyConfigObject(nextConfig);
+  showEQMode(mode);
+  markDirty();
+
+  if (!options.fromAB) {
+    const store = getABStore();
+    if (store[mode]?.active) {
+      store[mode].active = null;
+      setABStore(store);
+    }
+  }
+  renderEQSnapshotControls(mode);
+}
+
+function renderEQSnapshotControls(mode, selectedId = null) {
+  const select = document.querySelector(`[data-snapshot-select="${mode}"]`);
+  const snapshots = getEQSnapshotStore()[mode] || [];
+  if (select) {
+    const current = selectedId || select.value;
+    select.innerHTML = '';
+    if (!snapshots.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'No snapshots yet';
+      select.appendChild(opt);
+    } else {
+      for (const snapshot of snapshots) {
+        const opt = document.createElement('option');
+        opt.value = snapshot.id;
+        opt.textContent = `${snapshot.name} - ${snapshotSummary(snapshot)}`;
+        select.appendChild(opt);
+      }
+      select.value = snapshots.some(s => s.id === current) ? current : snapshots[0].id;
+    }
+  }
+
+  const ab = getABStore()[mode] || {};
+  const status = document.querySelector(`[data-ab-status="${mode}"]`);
+  if (status) {
+    const parts = [];
+    if (ab.a) parts.push(`A: ${snapshotSummary(ab.a)}`);
+    if (ab.b) parts.push(`B: ${snapshotSummary(ab.b)}`);
+    status.textContent = parts.length ? `${parts.join(' | ')}${ab.active ? ` - listening ${ab.active.toUpperCase()}` : ''}` : 'A/B slots empty';
+  }
+  document.querySelector(`[data-eq-history-mode="${mode}"] [data-ab-action="toggle"]`)
+    ?.classList.toggle('active', !!ab.active);
+}
+
+function modeLabel(mode) {
+  return mode === 'graphic' ? 'Graphic EQ' : 'Parametric EQ';
 }
 
 // ═══════════════════════════════════════════════════════════
