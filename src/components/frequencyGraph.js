@@ -833,7 +833,7 @@ export class FrequencyGraph {
       tmp.width = this.width * scale;
       tmp.height = this.height * scale;
       const tctx = tmp.getContext('2d');
-      tctx.fillStyle = '#0a0a0f';
+      tctx.fillStyle = this._theme().screenshotBg;
       tctx.fillRect(0, 0, tmp.width, tmp.height);
       tctx.drawImage(this.canvas, 0, 0, tmp.width, tmp.height);
       const url = tmp.toDataURL('image/png');
@@ -850,6 +850,33 @@ export class FrequencyGraph {
     }
   }
 
+  _theme() {
+    const light = document.documentElement?.dataset?.theme === 'light';
+    return light
+      ? {
+          screenshotBg: '#f6f9fc',
+          bg0: 'rgba(0, 143, 189, 0.055)',
+          bg1: 'rgba(4, 120, 87, 0.025)',
+          grid: 'rgba(15, 23, 42, 0.10)',
+          gridStrong: 'rgba(15, 23, 42, 0.22)',
+          label: 'rgba(15, 23, 42, 0.48)',
+          labelStrong: 'rgba(15, 23, 42, 0.66)',
+          axis: 'rgba(15, 23, 42, 0.40)',
+          nodeFill: '#ffffff',
+        }
+      : {
+          screenshotBg: '#0a0a0f',
+          bg0: 'rgba(0, 212, 255, 0.02)',
+          bg1: 'rgba(124, 58, 237, 0.01)',
+          grid: 'rgba(255, 255, 255, 0.04)',
+          gridStrong: 'rgba(255, 255, 255, 0.12)',
+          label: 'rgba(255, 255, 255, 0.2)',
+          labelStrong: 'rgba(255, 255, 255, 0.4)',
+          axis: 'rgba(255, 255, 255, 0.15)',
+          nodeFill: '#0a0a0f',
+        };
+  }
+
   // Render
   render() {
     if (this._animFrame) cancelAnimationFrame(this._animFrame);
@@ -863,11 +890,12 @@ export class FrequencyGraph {
     const h = this.height;
 
     ctx.clearRect(0, 0, w, h);
+    const theme = this._theme();
 
     // Background gradient
     const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
-    bgGrad.addColorStop(0, 'rgba(0, 212, 255, 0.02)');
-    bgGrad.addColorStop(1, 'rgba(124, 58, 237, 0.01)');
+    bgGrad.addColorStop(0, theme.bg0);
+    bgGrad.addColorStop(1, theme.bg1);
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, w, h);
 
@@ -890,6 +918,7 @@ export class FrequencyGraph {
   }
 
   _drawGrid(ctx, w, h) {
+    const theme = this._theme();
     const plotLeft = this.padding.left;
     const plotRight = w - this.padding.right;
     const plotTop = this.padding.top;
@@ -897,10 +926,10 @@ export class FrequencyGraph {
 
     // Frequency grid lines (logarithmic)
     const freqLines = this._getFrequencyTicks(plotRight - plotLeft);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+    ctx.strokeStyle = theme.grid;
     ctx.lineWidth = 1;
     ctx.font = '10px Inter';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.fillStyle = theme.label;
     ctx.textAlign = 'center';
 
     for (const freq of freqLines) {
@@ -924,7 +953,7 @@ export class FrequencyGraph {
       const y = this.dbToY(db);
       if (y < plotTop || y > plotBottom) continue;
 
-      ctx.strokeStyle = db === 0 ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.04)';
+      ctx.strokeStyle = db === 0 ? theme.gridStrong : theme.grid;
       ctx.lineWidth = db === 0 ? 1.5 : 1;
 
       ctx.beginPath();
@@ -932,12 +961,12 @@ export class FrequencyGraph {
       ctx.lineTo(plotRight, y);
       ctx.stroke();
 
-      ctx.fillStyle = db === 0 ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.2)';
+      ctx.fillStyle = db === 0 ? theme.labelStrong : theme.label;
       ctx.fillText(formatAxisDb(db), plotLeft - 10, y);
     }
 
     // Hz label
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillStyle = theme.axis;
     ctx.textAlign = 'center';
     ctx.fillText('Hz', (plotLeft + plotRight) / 2, plotBottom + 32);
 
@@ -1363,7 +1392,7 @@ export class FrequencyGraph {
       // Outer ring
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = '#0a0a0f';
+      ctx.fillStyle = this._theme().nodeFill;
       ctx.fill();
       ctx.strokeStyle = filter.color || '#00d4ff';
       ctx.lineWidth = 2;

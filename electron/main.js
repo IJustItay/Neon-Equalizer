@@ -9,9 +9,14 @@ const APP_NAME = 'Neon Equalizer';
 const LEGACY_APP_NAMES = ['Equalizer APO Studio', 'equalizer-apo-studio'];
 
 app.setName(APP_NAME);
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
 
 let mainWindow;
 let tray = null;
+let trayMenuRefreshTimer = null;
 const isDev = !app.isPackaged;
 const presetsDir = path.join(app.getPath('userData'), 'presets');
 const backupDir = path.join(app.getPath('documents'), 'Neon Equalizer Backups');
@@ -35,8 +40,67 @@ const volatileUserDataDirs = new Set([
   'Crashpad',
   'logs'
 ]);
+const QUICK_EQ_PROFILES = [
+  { id: 'flat', label: 'Flat EQ', accelerator: 'CommandOrControl+Alt+0', filters: [] },
+  {
+    id: 'bass-boost',
+    label: 'Bass Boost',
+    accelerator: 'CommandOrControl+Alt+1',
+    filters: [
+      { type: 'LS', frequency: 100, gain: 6, q: 0.707 },
+      { type: 'PK', frequency: 60, gain: 4, q: 1.0 }
+    ]
+  },
+  {
+    id: 'treble-boost',
+    label: 'Treble Boost',
+    accelerator: 'CommandOrControl+Alt+2',
+    filters: [
+      { type: 'HS', frequency: 8000, gain: 5, q: 0.707 },
+      { type: 'PK', frequency: 12000, gain: 3, q: 1.0 }
+    ]
+  },
+  {
+    id: 'vocal',
+    label: 'Vocal Enhance',
+    accelerator: 'CommandOrControl+Alt+3',
+    filters: [
+      { type: 'PK', frequency: 200, gain: -2, q: 1.0 },
+      { type: 'PK', frequency: 3000, gain: 4, q: 1.5 },
+      { type: 'PK', frequency: 5000, gain: 2, q: 2.0 }
+    ]
+  },
+  {
+    id: 'v-shape',
+    label: 'V-Shape',
+    accelerator: 'CommandOrControl+Alt+4',
+    filters: [
+      { type: 'PK', frequency: 60, gain: 5, q: 0.8 },
+      { type: 'PK', frequency: 200, gain: -3, q: 1.0 },
+      { type: 'PK', frequency: 1000, gain: -4, q: 0.7 },
+      { type: 'PK', frequency: 4000, gain: -2, q: 1.0 },
+      { type: 'PK', frequency: 12000, gain: 5, q: 0.8 }
+    ]
+  },
+  {
+    id: 'loudness',
+    label: 'Loudness',
+    accelerator: 'CommandOrControl+Alt+5',
+    filters: [
+      { type: 'PK', frequency: 40, gain: 8, q: 0.8 },
+      { type: 'PK', frequency: 80, gain: 5, q: 1.0 },
+      { type: 'PK', frequency: 1000, gain: -2, q: 0.5 },
+      { type: 'PK', frequency: 8000, gain: 4, q: 1.0 },
+      { type: 'PK', frequency: 14000, gain: 6, q: 0.8 }
+    ]
+  }
+];
 
 app.commandLine.appendSwitch('enable-experimental-web-platform-features');
+
+app.on('second-instance', (event, argv) => {
+  handleCommandArgs(argv);
+});
 
 function getAssetPath(...segments) {
   return path.join(__dirname, '..', 'assets', ...segments);
@@ -424,6 +488,249 @@ $devices | Sort-Object flowLabel, name | ConvertTo-Json -Depth 4
   }
 }
 
+function getMainConfigPath() {
+  const apoPath = getAPOConfigPath();
+  return apoPath ? path.join(apoPath, 'config.txt') : null;
+}
+
+function readMainConfigText() {
+  const configPath = getMainConfigPath();
+  if (!configPath || !fs.existsSync(configPath)) return '';
+  return fs.readFileSync(configPath, 'utf8');
+}
+
+function writeMainConfigText(content, message = 'EQ changed from Windows') {
+  const configPath = getMainConfigPath();
+  if (!configPath) return false;
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, content, 'utf8');
+  refreshRendererConfig(content, message);
+  return true;
+}
+
+function refreshRendererConfig(content, message) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const script = `window.neonEqualizerApplyConfigText?.(${JSON.stringify(content)}, ${JSON.stringify(message)});`;
+  mainWindow.webContents.executeJavaScript(script).catch(() => {});
+}
+
+function extractDeviceTarget(content) {
+  const match = String(content || '').match(/^Device:\s*(.+)$/im);
+  const device = match?.[1]?.trim();
+  return device && device.toLowerCase() !== 'all' ? device : 'all';
+}
+
+function extractPreamp(content) {
+  const match = String(content || '').match(/^Preamp:\s*([-+]?\d+(?:\.\d+)?)\s*dB/im);
+  return match ? Number(match[1]) || 0 : 0;
+}
+
+function upsertDirectiveLine(content, directive, value) {
+  const clean = String(content || '').replace(/\r\n/g, '\n').trimEnd();
+  const line = `${directive}: ${value}`;
+  const pattern = new RegExp(`^${directive}:\\s*.*$`, 'im');
+  if (pattern.test(clean)) return clean.replace(pattern, line) + '\n';
+
+  const lines = clean ? clean.split('\n') : [];
+  const deviceIndex = lines.findIndex(item => /^Device:/i.test(item));
+  if (directive.toLowerCase() !== 'device' && deviceIndex >= 0) {
+    lines.splice(deviceIndex + 1, 0, line);
+  } else {
+    lines.unshift(line);
+  }
+  return `${lines.join('\n').trimEnd()}\n`;
+}
+
+function formatNumber(value, digits = 1) {
+  return Number(value || 0).toFixed(digits);
+}
+
+function serializeQuickProfile(profile, device = 'all') {
+  const lines = [
+    '# Neon Equalizer quick profile',
+    `# Applied from Windows: ${profile.label}`,
+    `Device: ${device && device !== 'all' ? device : 'all'}`,
+    ''
+  ];
+
+  if (profile.preamp) {
+    lines.push(`Preamp: ${formatNumber(profile.preamp)} dB`, '');
+  }
+
+  if (profile.filters?.length) {
+    lines.push('# Parametric EQ Filters');
+    for (const filter of profile.filters) {
+      const parts = [`Filter: ON ${filter.type || 'PK'}`];
+      if (Number.isFinite(filter.frequency)) parts.push(`Fc ${filter.frequency} Hz`);
+      if (Number.isFinite(filter.gain)) parts.push(`Gain ${formatNumber(filter.gain)} dB`);
+      if (Number.isFinite(filter.q)) parts.push(`Q ${Number(filter.q).toFixed(3)}`);
+      lines.push(parts.join(' '));
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+function applyQuickEqProfile(profileId) {
+  const profile = QUICK_EQ_PROFILES.find(item => item.id === profileId);
+  if (!profile) return false;
+  const current = readMainConfigText();
+  const device = extractDeviceTarget(current);
+  return writeMainConfigText(serializeQuickProfile(profile, device), `${profile.label} applied`);
+}
+
+function setTrayPreamp(value) {
+  const next = Math.max(-30, Math.min(15, Number(value) || 0));
+  const current = readMainConfigText();
+  const base = current || 'Device: all\n';
+  return writeMainConfigText(upsertDirectiveLine(base, 'Preamp', `${formatNumber(next)} dB`), `Preamp set to ${formatNumber(next)} dB`);
+}
+
+function adjustTrayPreamp(delta) {
+  const current = readMainConfigText();
+  return setTrayPreamp(extractPreamp(current) + delta);
+}
+
+function applyTrayDeviceTarget(deviceValue, label = '') {
+  const current = readMainConfigText();
+  const base = current || 'Device: all\n';
+  const target = deviceValue && deviceValue !== 'all' ? deviceValue : 'all';
+  return writeMainConfigText(upsertDirectiveLine(base, 'Device', target), `APO target: ${label || target}`);
+}
+
+function showOrHideMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isVisible()) mainWindow.hide();
+  else {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+}
+
+function buildDeviceTrayItems() {
+  const devices = listWindowsAudioDevices().filter(device => device?.apoValue);
+  const items = [
+    { label: 'All Devices', click: () => applyTrayDeviceTarget('all', 'all devices') },
+    { type: 'separator' }
+  ];
+
+  if (!devices.length) {
+    items.push({ label: 'No Windows devices found', enabled: false });
+    return items;
+  }
+
+  for (const device of devices.slice(0, 24)) {
+    items.push({
+      label: `${device.flowLabel || 'Device'}: ${device.name || device.apoValue}${device.active ? '' : ' (disabled)'}`,
+      click: () => applyTrayDeviceTarget(device.apoValue, device.name || device.apoValue)
+    });
+  }
+  return items;
+}
+
+function updateTrayMenu() {
+  if (!tray) return;
+  const presets = getPresetsList();
+  const presetItems = presets.map(p => ({
+    label: p.name.replace('.txt', ''),
+    click: () => applyPresetFromTray(p.name)
+  }));
+  const quickItems = QUICK_EQ_PROFILES.map(profile => ({
+    label: profile.label,
+    accelerator: profile.accelerator,
+    click: () => applyQuickEqProfile(profile.id)
+  }));
+
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Show / Hide', accelerator: 'CommandOrControl+Shift+E', click: showOrHideMainWindow },
+    { type: 'separator' },
+    { label: 'Quick EQ', submenu: quickItems },
+    { label: 'Apply Saved Preset', submenu: presetItems.length > 0 ? presetItems : [{ label: 'No presets', enabled: false }] },
+    {
+      label: 'Preamp',
+      submenu: [
+        { label: 'Raise 1 dB', accelerator: 'CommandOrControl+Alt+Up', click: () => adjustTrayPreamp(1) },
+        { label: 'Lower 1 dB', accelerator: 'CommandOrControl+Alt+Down', click: () => adjustTrayPreamp(-1) },
+        { type: 'separator' },
+        ...[-12, -9, -6, -3, 0, 3].map(value => ({
+          label: `${value >= 0 ? '+' : ''}${value} dB`,
+          click: () => setTrayPreamp(value)
+        }))
+      ]
+    },
+    { label: 'Target Device', submenu: buildDeviceTrayItems() },
+    { type: 'separator' },
+    { label: 'Refresh Tray Menu', click: scheduleTrayMenuRefresh },
+    { label: 'Open Equalizer APO Config Folder', click: () => {
+      const apoPath = getAPOConfigPath();
+      if (apoPath) shell.openPath(apoPath);
+    }},
+    { type: 'separator' },
+    { label: 'Quit', click: () => {
+      app.isQuitting = true;
+      app.quit();
+    }}
+  ]);
+  tray.setContextMenu(contextMenu);
+}
+
+function scheduleTrayMenuRefresh() {
+  if (trayMenuRefreshTimer) clearTimeout(trayMenuRefreshTimer);
+  trayMenuRefreshTimer = setTimeout(() => {
+    trayMenuRefreshTimer = null;
+    try { updateTrayMenu(); } catch (e) { console.warn('Tray refresh failed:', e.message); }
+  }, 150);
+}
+
+function registerGlobalShortcuts() {
+  const shortcuts = [
+    ['CommandOrControl+Shift+E', showOrHideMainWindow],
+    ...QUICK_EQ_PROFILES.map(profile => [profile.accelerator, () => applyQuickEqProfile(profile.id)]),
+    ['CommandOrControl+Alt+Up', () => adjustTrayPreamp(1)],
+    ['CommandOrControl+Alt+Down', () => adjustTrayPreamp(-1)]
+  ];
+  for (const [accelerator, action] of shortcuts) {
+    try {
+      const ok = globalShortcut.register(accelerator, action);
+      if (!ok) console.warn(`Global shortcut unavailable: ${accelerator}`);
+    } catch (e) {
+      console.warn(`Global shortcut failed: ${accelerator}`, e.message);
+    }
+  }
+}
+
+function setupWindowsUserTasks() {
+  if (process.platform !== 'win32') return;
+  const iconPath = getAppIconPath('icon.ico') || process.execPath;
+  app.setUserTasks([
+    { program: process.execPath, arguments: '--quick-eq=flat', iconPath, iconIndex: 0, title: 'Flat EQ', description: 'Apply Flat EQ without opening Neon Equalizer.' },
+    { program: process.execPath, arguments: '--quick-eq=bass-boost', iconPath, iconIndex: 0, title: 'Bass Boost', description: 'Apply Bass Boost without opening Neon Equalizer.' },
+    { program: process.execPath, arguments: '--quick-eq=treble-boost', iconPath, iconIndex: 0, title: 'Treble Boost', description: 'Apply Treble Boost without opening Neon Equalizer.' },
+    { program: process.execPath, arguments: '--quick-eq=vocal', iconPath, iconIndex: 0, title: 'Vocal Enhance', description: 'Apply Vocal Enhance without opening Neon Equalizer.' },
+    { program: process.execPath, arguments: '--preamp=down', iconPath, iconIndex: 0, title: 'Lower Preamp 1 dB', description: 'Lower preamp without opening Neon Equalizer.' }
+  ]);
+}
+
+function handleCommandArgs(argv = []) {
+  const args = Array.isArray(argv) ? argv : [];
+  const quickArg = args.find(arg => String(arg).startsWith('--quick-eq='));
+  const preampArg = args.find(arg => String(arg).startsWith('--preamp='));
+
+  if (quickArg) {
+    applyQuickEqProfile(String(quickArg).split('=')[1]);
+    return;
+  }
+  if (preampArg) {
+    const value = String(preampArg).split('=')[1];
+    if (value === 'up') adjustTrayPreamp(1);
+    else if (value === 'down') adjustTrayPreamp(-1);
+    else setTrayPreamp(Number(value));
+    return;
+  }
+  if (args.includes('--show-app')) showOrHideMainWindow();
+}
+
 // Auto-detect Equalizer APO config path
 function getAPOConfigPath() {
   const defaultPaths = [
@@ -532,51 +839,26 @@ app.whenReady().then(() => {
   // System Tray Setup
   tray = new Tray(createTrayIcon());
   tray.setToolTip(APP_NAME);
-  
-  const updateTrayMenu = () => {
-    const presets = getPresetsList();
-    const presetItems = presets.map(p => ({
-      label: p.name.replace('.txt', ''),
-      click: () => applyPresetFromTray(p.name)
-    }));
-    
-    const contextMenu = Menu.buildFromTemplate([
-      { label: 'Show / Hide', click: () => {
-         if (mainWindow.isVisible()) mainWindow.hide();
-         else mainWindow.show();
-      }},
-      { type: 'separator' },
-      { label: 'Apply Preset', submenu: presetItems.length > 0 ? presetItems : [{ label: 'No presets', enabled: false }] },
-      { type: 'separator' },
-      { label: 'Quit', click: () => {
-          app.isQuitting = true;
-          app.quit();
-      }}
-    ]);
-    tray.setContextMenu(contextMenu);
-  };
-  
   updateTrayMenu();
   
   // Update tray when presets change
   fs.watch(presetsDir, () => {
-    try { updateTrayMenu(); } catch(e){}
+    scheduleTrayMenuRefresh();
   });
 
-  tray.on('click', () => {
-    if (mainWindow.isVisible()) mainWindow.hide();
-    else mainWindow.show();
-  });
+  tray.on('click', showOrHideMainWindow);
 
-  // Global Hotkey
-  globalShortcut.register('CommandOrControl+Shift+E', () => {
-    if (mainWindow.isVisible()) mainWindow.hide();
-    else mainWindow.show();
-  });
+  registerGlobalShortcuts();
+  setupWindowsUserTasks();
+  handleCommandArgs(process.argv);
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
 
 app.on('activate', () => {
@@ -900,13 +1182,7 @@ function applyPresetFromTray(fileName) {
   const p = path.join(presetsDir, fileName);
   if (fs.existsSync(p)) {
       const content = fs.readFileSync(p, 'utf8');
-      const apoPath = getAPOConfigPath();
-      if (apoPath) {
-          fs.writeFileSync(path.join(apoPath, 'config.txt'), content, 'utf8');
-      }
-      if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.executeJavaScript(`loadConfigFromText(\`${content.replace(/`/g, '\\`')}\`); refreshUI();`).catch(()=>{});
-      }
+      writeMainConfigText(content, `Preset applied: ${fileName.replace('.txt', '')}`);
   }
 }
 

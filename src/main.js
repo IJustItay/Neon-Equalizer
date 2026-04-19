@@ -50,6 +50,8 @@ let apoAudioDevices = [];
 const AUTO_SAVE_APO_KEY = 'neon-equalizer:auto-save-apo';
 const DEVICE_PRESETS_KEY = 'neon-equalizer:device-presets:v1';
 const DEVICE_AUTO_SWITCH_KEY = 'neon-equalizer:device-auto-switch';
+const THEME_KEY = 'neon-equalizer:theme';
+const HELP_MODE_KEY = 'neon-equalizer:help-mode';
 const APP_VERSION = appPackage.version || '0.0.0';
 const GITHUB_REPO_URL = 'https://github.com/IJustItay/Neon-Equalizer';
 const GITHUB_RELEASES_API = 'https://api.github.com/repos/IJustItay/Neon-Equalizer/releases/latest';
@@ -71,8 +73,343 @@ function publishSquigSourceSelection(source, reason = 'browser') {
   syncGraphFeatureControls();
 }
 
+// Theme and plain-language control help
+const CONTROL_HELP = {
+  'btn-theme-toggle': 'Switch between the neon dark theme and the brighter light theme.',
+  'btn-help-mode': 'Turn help mode on or off. When it is on, click any control to learn what it does.',
+  'btn-minimize': 'Hide Neon Equalizer in the taskbar without closing it.',
+  'btn-maximize': 'Maximize the window or restore it to the previous size.',
+  'btn-close': 'Close the Neon Equalizer window.',
+  'config-path-btn': 'Choose the Equalizer APO config folder. This is where Neon Equalizer reads and writes config.txt.',
+  'preamp-slider': 'Lower or raise the whole EQ level before filters. Lower it if the clipping dot warns you.',
+  'clip-dot': 'Shows clipping risk. If it lights up, lower preamp or enable Auto.',
+  'auto-preamp-enabled': 'Automatically lowers preamp enough to prevent clipping from boosted filters.',
+  'device-select': 'Choose which Windows audio device or saved device preset the current EQ should target in Equalizer APO.',
+  'btn-device-refresh': 'Reload the Windows playback device list.',
+  'btn-device-save-preset': 'Save the current EQ as the preset for the selected device.',
+  'device-auto-switch-enabled': 'Automatically load a saved preset when the active device changes.',
+  'btn-undo': 'Undo the last EQ edit.',
+  'btn-redo': 'Redo the last undone EQ edit.',
+  'btn-import': 'Import an Equalizer APO config file into the app.',
+  'btn-export': 'Export the current EQ config to a file.',
+  'auto-save-apo-enabled': 'Save changes to Equalizer APO automatically after edits. Turn it off if you prefer manual Save to APO.',
+  'btn-save': 'Write the current setup into Equalizer APO so it affects your sound.',
+  'graph-show-combined': 'Show the total EQ response as one combined curve.',
+  'graph-show-individual': 'Show each filter curve separately.',
+  'graph-pref-bounds': 'Show headphone preference bounds when the selected data supports them.',
+  'graph-delta': 'Show the difference between measurement and target.',
+  'graph-spectrum': 'Show a live FFT spectrum from EQ Preview audio.',
+  'graph-smoothing': 'Change how much the frequency response graph is smoothed.',
+  'graph-yscale': 'Cycle the vertical dB range of the graph.',
+  'graph-normalize-freq': 'Choose the frequency used to normalize measurement and target curves.',
+  'graph-baseline-mode': 'Compare curves against a target or measurement baseline.',
+  'graph-offset-curve': 'Choose which curve the Hide and Offset buttons affect.',
+  'graph-curve-hide': 'Hide or show the selected curve.',
+  'graph-offset-down': 'Move the selected curve down by 1 dB.',
+  'graph-offset-up': 'Move the selected curve up by 1 dB.',
+  'graph-offset-reset': 'Reset the selected curve offset back to 0 dB.',
+  'graph-screenshot': 'Save the current graph as a PNG image.',
+  'graph-zoom-in': 'Zoom in on the graph dB range.',
+  'graph-zoom-out': 'Zoom out on the graph dB range.',
+  'graph-reset': 'Reset graph zoom, offsets, and view settings.',
+  'tab-eq': 'Open the Equalizer page for parametric and graphic EQ editing.',
+  'tab-autoeq': 'Open AutoEQ, headphone measurements, targets, and Squiglink tools.',
+  'tab-tools': 'Open VST, impulse response, loudness, channel, delay, and hardware PEQ tools.',
+  'tab-advanced': 'Open presets, import/export formats, include files, and raw Equalizer APO config.',
+  'tab-trace': 'Open the frequency response tracer and Squiglink capture tools.',
+  'tab-about': 'Open app information, updates, backups, and the easy guide.',
+  'eq-type-select': 'Switch between Parametric EQ and GraphicEQ editing.',
+  'filter-preset-select': 'Load a built-in EQ shape such as bass boost, vocal, or flat reset.',
+  'btn-add-filter': 'Add a new parametric EQ band.',
+  'quick-preset-select': 'Load one of your saved local EQ presets.',
+  'quick-preset-name': 'Type a name for a local EQ preset.',
+  'btn-quick-save': 'Save the current EQ as a local preset.',
+  'btn-quick-delete': 'Delete the selected local EQ preset.',
+  'graphic-enabled': 'Turn the GraphicEQ section on or off.',
+  'graphic-bands-select': 'Choose a common GraphicEQ band layout.',
+  'graphic-frequencies-input': 'Enter custom GraphicEQ frequencies.',
+  'btn-graphic-apply-frequencies': 'Apply the custom GraphicEQ frequency list.',
+  'btn-graphic-add-band': 'Add another GraphicEQ band.',
+  'btn-graphic-import': 'Import GraphicEQ values.',
+  'btn-graphic-export': 'Export GraphicEQ values.',
+  'btn-graphic-invert': 'Invert GraphicEQ gains above and below 0 dB.',
+  'btn-graphic-normalize': 'Move GraphicEQ gains so the loudest band is near 0 dB.',
+  'btn-graphic-smooth': 'Smooth neighboring GraphicEQ bands.',
+  'btn-graphic-reset': 'Reset the GraphicEQ curve to flat.',
+  'target-source': 'Choose where AutoEQ target data comes from.',
+  'target-name': 'Choose the target curve used by AutoEQ.',
+  'target-upload': 'Load a target curve from a local file.',
+  'target-clear': 'Clear the current target or measurement selection.',
+  'target-allow-cross-source': 'Allow using a measurement and target from different sources.',
+  'tc-tilt': 'Tilt the target brighter or darker across the frequency range.',
+  'tc-bass': 'Add or reduce bass in the target before AutoEQ runs.',
+  'tc-treble': 'Add or reduce treble in the target before AutoEQ runs.',
+  'tc-preset-select': 'Load a target adjustment preset.',
+  'tc-reset': 'Reset target adjustments to neutral.',
+  'aeq-use-shelf-filter': 'Allow AutoEQ to use shelf filters for broad bass or treble changes.',
+  'aeq-smooth-input': 'Smooth the input measurement before generating filters.',
+  'aeq-normalization': 'Choose how AutoEQ aligns measurement and target levels.',
+  'aeq-max-filters': 'Limit how many parametric filters AutoEQ may create.',
+  'aeq-freq-min': 'Lowest frequency AutoEQ is allowed to correct.',
+  'aeq-freq-max': 'Highest frequency AutoEQ is allowed to correct.',
+  'aeq-q-min': 'Minimum Q value AutoEQ may use for wide filters.',
+  'aeq-q-max': 'Maximum Q value AutoEQ may use for narrow filters.',
+  'aeq-gain-min': 'Largest cut AutoEQ may apply.',
+  'aeq-gain-max': 'Largest boost AutoEQ may apply.',
+  'btn-aeq-run': 'Generate EQ filters from the selected measurement and target.',
+  'squig-search': 'Search headphone measurements in the Squiglink browser.',
+  'squig-source-filter': 'Filter Squiglink results by source.',
+  'squig-sig-filter': 'Filter Squiglink results by signature or compensation type.',
+  'btn-squig-capture-trace': 'Capture the visible Squiglink trace into Neon Equalizer.',
+  'btn-squig-close-embed': 'Close the embedded Squiglink view.',
+  'btn-import-trace': 'Import frequency response trace data from a file.',
+  'btn-trace-to-eq': 'Send the captured trace to AutoEQ or the EQ workflow.',
+  'btn-trace-clear': 'Clear the current trace data.',
+  'btn-trace-reload': 'Reload the embedded trace page.',
+  'btn-trace-open-external': 'Open the trace source in your browser.',
+  'trace-data-kind': 'Tell Neon Equalizer whether this trace is a measurement, target, or correction.',
+  'btn-add-vst': 'Add a VST plugin line to the Equalizer APO config.',
+  'btn-browse-ir': 'Choose an impulse response file for convolution.',
+  'btn-remove-ir': 'Remove the selected impulse response.',
+  'ir-enabled': 'Turn convolution impulse response processing on or off.',
+  'loudness-enabled': 'Turn Equalizer APO loudness correction on or off.',
+  'loud-ref-level': 'Set the reference listening level used by loudness correction.',
+  'loud-ref-offset': 'Fine-tune the loudness correction reference offset.',
+  'loud-attenuation': 'Set the current listening attenuation for loudness correction.',
+  'btn-reset-loudness': 'Reset loudness correction values to defaults.',
+  'btn-add-copy': 'Add a channel copy or routing rule.',
+  'btn-add-delay': 'Add a delay rule for timing alignment.',
+  'device-connector': 'Choose how to connect to a supported hardware PEQ device.',
+  'device-network-host': 'Enter the network address of the hardware PEQ device.',
+  'btn-hid-connect': 'Connect to the selected hardware PEQ device.',
+  'btn-hid-disconnect': 'Disconnect from the hardware PEQ device.',
+  'hid-slot-select': 'Choose which hardware PEQ slot to read or write.',
+  'btn-hid-push': 'Send the current EQ to the hardware PEQ device.',
+  'btn-hid-pull': 'Read EQ settings from the hardware PEQ device.',
+  'effect-bass': 'Adjust a simple bass tone control.',
+  'effect-treble': 'Adjust a simple treble tone control.',
+  'effect-balance': 'Move volume balance left or right.',
+  'effect-crossfeed-enabled': 'Blend a little left/right signal for headphone crossfeed.',
+  'preset-name-input': 'Type a name for a full app preset.',
+  'btn-save-new-preset': 'Save the current setup as a full preset.',
+  'btn-import-squig-eq': 'Import EQ filters in Squiglink format.',
+  'btn-import-wavelet-eq': 'Import EQ filters in Wavelet format.',
+  'btn-export-squig-eq': 'Export filters in Squiglink format.',
+  'btn-export-wavelet-eq': 'Export filters in Wavelet format.',
+  'btn-add-include': 'Add an Equalizer APO Include file entry.',
+  'expr-editor': 'Write Equalizer APO conditional expressions or extra commands.',
+  'raw-config-editor': 'View or edit the raw Equalizer APO config text.',
+  'btn-parse-raw': 'Parse the raw config text into the visual editor.',
+  'btn-apply-raw': 'Apply the raw config text to the current setup.',
+  'btn-about-github': 'Open the Neon Equalizer GitHub repository.',
+  'btn-about-releases': 'Open the GitHub releases page.',
+  'btn-check-updates': 'Check GitHub for a newer version.',
+  'btn-download-update': 'Download the available update inside the app.',
+  'btn-install-update': 'Install the downloaded update and restart Neon Equalizer.',
+  'btn-open-release': 'Open the release page for the latest version.',
+  'btn-backup-data': 'Save a backup of presets, snapshots, device profiles, and settings.',
+  'btn-restore-data': 'Restore app data from a previous backup.',
+  'btn-open-backups': 'Open the folder where backups are stored.'
+};
+
+function initThemeSystem() {
+  const stored = safeLocalStorageGet(THEME_KEY);
+  const prefersLight = window.matchMedia?.('(prefers-color-scheme: light)')?.matches;
+  const theme = stored === 'light' || stored === 'dark' ? stored : prefersLight ? 'light' : 'dark';
+  applyAppTheme(theme);
+  document.getElementById('btn-theme-toggle')?.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    applyAppTheme(next);
+    safeLocalStorageSet(THEME_KEY, next);
+    showToast(`${next === 'light' ? 'Light' : 'Dark'} theme enabled`, 'info');
+  });
+}
+
+function applyAppTheme(theme) {
+  const next = theme === 'light' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  document.body?.classList.toggle('theme-light', next === 'light');
+  const btn = document.getElementById('btn-theme-toggle');
+  if (btn) {
+    btn.classList.toggle('active', next === 'light');
+    btn.title = next === 'light' ? 'Switch to dark theme' : 'Switch to light theme';
+    const text = btn.querySelector('.titlebar-action-text');
+    if (text) text.textContent = next === 'light' ? 'Dark' : 'Light';
+  }
+  freqGraph?.render?.();
+  graphicEQ?.render?.();
+}
+
+function initHelpSystem() {
+  let enabled = safeLocalStorageGet(HELP_MODE_KEY) === '1';
+  const btn = document.getElementById('btn-help-mode');
+  const popover = document.getElementById('help-popover');
+
+  const setEnabled = (next) => {
+    enabled = Boolean(next);
+    document.body.classList.toggle('help-mode', enabled);
+    btn?.classList.toggle('active', enabled);
+    if (btn) btn.title = enabled ? 'Help mode is on' : 'Explain buttons';
+    safeLocalStorageSet(HELP_MODE_KEY, enabled ? '1' : '0');
+    if (!enabled) hideControlHelp();
+    showToast(enabled ? 'Help mode on: click any control for a simple explanation' : 'Help mode off', 'info');
+  };
+
+  btn?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setEnabled(!enabled);
+  });
+
+  annotateControlsWithHelp();
+  document.body.classList.toggle('help-mode', enabled);
+  btn?.classList.toggle('active', enabled);
+
+  let annotateQueued = false;
+  const queueAnnotate = () => {
+    if (annotateQueued) return;
+    annotateQueued = true;
+    requestAnimationFrame(() => {
+      annotateQueued = false;
+      annotateControlsWithHelp();
+    });
+  };
+  new MutationObserver(queueAnnotate).observe(document.body, { childList: true, subtree: true });
+
+  document.addEventListener('click', (event) => {
+    if (!enabled) return;
+    const target = event.target.closest('[data-help]');
+    if (!target || target.id === 'btn-help-mode') return;
+    event.preventDefault();
+    event.stopPropagation();
+    showControlHelp(target, popover);
+  }, true);
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && enabled) hideControlHelp();
+  });
+}
+
+function annotateControlsWithHelp(root = document) {
+  const controls = root.querySelectorAll('button, input, select, textarea, label, [role="button"], [tabindex]');
+  controls.forEach((el) => {
+    const help = getControlHelp(el);
+    if (!help) return;
+    el.dataset.help = help;
+    if (!el.title) el.title = help;
+    if (el.tagName === 'BUTTON' && !el.getAttribute('aria-label') && !el.textContent.trim()) {
+      el.setAttribute('aria-label', getControlName(el));
+    }
+  });
+}
+
+function getControlHelp(el) {
+  if (!el) return '';
+  if (el.id && CONTROL_HELP[el.id]) return CONTROL_HELP[el.id];
+  const input = el.matches('label') ? el.querySelector('input, select, textarea') : null;
+  if (input?.id && CONTROL_HELP[input.id]) return CONTROL_HELP[input.id];
+  const action = el.dataset?.snapshotAction || el.closest?.('[data-snapshot-action]')?.dataset?.snapshotAction;
+  if (action) return getSnapshotHelp(action);
+  const abAction = el.dataset?.abAction || el.closest?.('[data-ab-action]')?.dataset?.abAction;
+  if (abAction) return getABHelp(abAction);
+  if (el.classList?.contains('filter-delete') || textIncludes(el, 'delete')) return 'Delete this item.';
+  if (el.classList?.contains('filter-duplicate') || textIncludes(el, 'duplicate')) return 'Duplicate this item so you can tweak a copy.';
+  if (el.classList?.contains('vst-browse')) return 'Choose a VST plugin file from disk.';
+  if (el.classList?.contains('vst-remove')) return 'Remove this VST plugin row.';
+  if (el.classList?.contains('ch-btn')) return 'Choose or toggle an audio channel.';
+  if (el.matches('input[type="range"]')) return `${getControlName(el)}: drag to change the value.`;
+  if (el.matches('input[type="checkbox"]')) return `${getControlName(el)}: turn this option on or off.`;
+  if (el.matches('input[type="number"]')) return `${getControlName(el)}: enter a numeric value.`;
+  if (el.matches('input[type="text"], input:not([type])')) return `${getControlName(el)}: type a value here.`;
+  if (el.matches('select')) return `${getControlName(el)}: choose one option from the list.`;
+  if (el.matches('textarea')) return `${getControlName(el)}: paste or edit text here.`;
+  if (el.matches('button, [role="button"]')) return `${getControlName(el)}: click to run this action.`;
+  return '';
+}
+
+function getSnapshotHelp(action) {
+  const map = {
+    save: 'Save a snapshot of the current EQ so you can return to it later.',
+    restore: 'Restore the selected EQ snapshot.',
+    delete: 'Delete the selected EQ snapshot.',
+    clear: 'Clear saved snapshots for this EQ mode.'
+  };
+  return map[action] || 'Manage EQ snapshots for this EQ mode.';
+}
+
+function getABHelp(action) {
+  const map = {
+    storeA: 'Save the current EQ into A.',
+    storeB: 'Save the current EQ into B.',
+    'capture-a': 'Save the current EQ into A.',
+    'capture-b': 'Save the current EQ into B.',
+    loadA: 'Load the EQ saved in A.',
+    loadB: 'Load the EQ saved in B.',
+    toggle: 'Switch between A and B so you can compare two EQ versions quickly.',
+    swap: 'Swap the saved A and B EQ settings.',
+    clear: 'Clear the saved A/B comparison slots.'
+  };
+  return map[action] || 'Use A/B compare to test two EQ versions quickly.';
+}
+
+function showControlHelp(target, popover) {
+  if (!target || !popover) return;
+  const name = getControlName(target);
+  const help = target.dataset.help || getControlHelp(target);
+  popover.innerHTML = `<strong>${escapeHtml(name)}</strong>${escapeHtml(help)}`;
+  popover.style.display = 'block';
+  const rect = target.getBoundingClientRect();
+  const gap = 10;
+  const maxLeft = Math.max(8, window.innerWidth - popover.offsetWidth - 8);
+  const left = Math.min(Math.max(8, rect.left), maxLeft);
+  const below = rect.bottom + gap;
+  const top = below + popover.offsetHeight < window.innerHeight
+    ? below
+    : Math.max(8, rect.top - popover.offsetHeight - gap);
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+}
+
+function hideControlHelp() {
+  const popover = document.getElementById('help-popover');
+  if (popover) popover.style.display = 'none';
+}
+
+function getControlName(el) {
+  const labelledBy = el.getAttribute?.('aria-labelledby');
+  if (labelledBy) {
+    const label = labelledBy.split(/\s+/).map(id => document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(' ');
+    if (label) return label;
+  }
+  const label = el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.textContent?.trim() : '';
+  if (label) return cleanControlText(label);
+  const closestLabel = el.closest?.('label')?.textContent?.trim();
+  if (closestLabel) return cleanControlText(closestLabel);
+  const text = el.textContent?.trim();
+  if (text) return cleanControlText(text);
+  if (el.getAttribute?.('placeholder')) return el.getAttribute('placeholder');
+  if (el.getAttribute?.('title')) return el.getAttribute('title');
+  return el.id ? el.id.replace(/^btn-/, '').replace(/[-_]+/g, ' ') : 'Control';
+}
+
+function cleanControlText(text) {
+  return String(text).replace(/\s+/g, ' ').trim().slice(0, 64);
+}
+
+function textIncludes(el, needle) {
+  return el.textContent?.toLowerCase().includes(needle);
+}
+
+function safeLocalStorageGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function safeLocalStorageSet(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* ignore private storage errors */ }
+}
+
 // ─── Init ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  initThemeSystem();
   initGraph();
   initNavigation();
   initTopBar();
@@ -90,6 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initHIDPanel();
   initAdvancedPanel();
   initAboutPanel();
+  initHelpSystem();
   initUpdateChecker();
   detectAPO();
   updateStatus('Ready');
@@ -597,7 +935,6 @@ function initDeviceSelector() {
 
   document.getElementById('btn-device-save-preset')?.addEventListener('click', saveCurrentDevicePreset);
   document.getElementById('btn-device-refresh')?.addEventListener('click', () => refreshAudioDeviceOptions({ silent: false }));
-  document.getElementById('btn-device-custom')?.addEventListener('click', addCustomDeviceSelection);
 
   const autoToggle = document.getElementById('device-auto-switch-enabled');
   if (autoToggle) {
@@ -770,14 +1107,6 @@ function saveCurrentDevicePreset() {
   applyDeviceSelectionToApo(displayName).then(() => {
     showToast(`Saved device preset: ${displayName}`, 'success');
   });
-}
-
-function addCustomDeviceSelection() {
-  const value = window.prompt('Equalizer APO Device value:', appState.config.device || '')?.trim() || '';
-  if (!value) return;
-  appState.config.device = value;
-  renderDeviceSelector(value);
-  applyDeviceSelectionToApo(value);
 }
 
 async function applyDeviceSelectionToApo(label = '') {
@@ -4092,3 +4421,11 @@ function initHIDPanel() {
     }
   });
 }
+
+window.neonEqualizerApplyConfigText = (text, message = 'EQ changed from Windows') => {
+  if (!text) return false;
+  loadConfigFromText(text);
+  updateStatus(message);
+  showToast(message, 'info');
+  return true;
+};

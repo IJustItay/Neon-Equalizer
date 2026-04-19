@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -26,6 +26,12 @@
       </div>
     </div>
     <div class="titlebar-controls">
+      <button class="titlebar-btn titlebar-action" id="btn-theme-toggle" title="Switch theme">
+        <span class="titlebar-action-text" aria-hidden="true">Light</span>
+      </button>
+      <button class="titlebar-btn titlebar-action" id="btn-help-mode" title="Explain buttons">
+        <span class="titlebar-action-text" aria-hidden="true">?</span>
+      </button>
       <button class="titlebar-btn" id="btn-minimize" title="Minimize">
         <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
       </button>
@@ -71,7 +77,6 @@
           <option value="all">All Devices</option>
         </select>
         <button class="device-profile-btn device-icon-btn" id="btn-device-refresh" title="Refresh Windows audio devices">↻</button>
-        <button class="device-profile-btn" id="btn-device-custom" title="Type a custom Equalizer APO Device line">Custom</button>
         <button class="device-profile-btn" id="btn-device-save-preset" title="Save current EQ as the selected device preset">Preset</button>
         <label class="device-auto-switch" title="Load a saved EQ preset when the selected device changes">
           <input type="checkbox" id="device-auto-switch-enabled">
@@ -849,6 +854,87 @@
             </div>
           </div>
 
+          <div class="about-card about-wide guide-card">
+            <div class="about-card-head">
+              <span>Easy Guide</span>
+              <span class="about-pill">Click ? for help</span>
+            </div>
+            <p class="about-muted">Turn on the ? button in the titlebar, then click any button, slider, checkbox, or list to see a simple explanation before it does anything.</p>
+            <div class="guide-grid">
+              <div class="guide-item">
+                <strong>Top Bar</strong>
+                <span>Choose the Equalizer APO config folder, pick a device target, control preamp, undo changes, import/export, and save to APO.</span>
+              </div>
+              <div class="guide-item">
+                <strong>Graph</strong>
+                <span>See what your EQ does. Drag bands to move frequency and gain, use the mouse wheel or modifier keys to change Q, zoom, smooth, offset, and save screenshots.</span>
+              </div>
+              <div class="guide-item">
+                <strong>Equalizer</strong>
+                <span>Add, duplicate, delete, and tune parametric filters or switch to GraphicEQ for fixed-band shaping.</span>
+              </div>
+              <div class="guide-item">
+                <strong>AutoEQ</strong>
+                <span>Load headphone measurements and targets, adjust bass/treble/tilt, then generate filters automatically.</span>
+              </div>
+              <div class="guide-item">
+                <strong>Tools</strong>
+                <span>Add VST plugins, convolution impulse responses, loudness correction, channel routing, delays, and hardware PEQ transfer.</span>
+              </div>
+              <div class="guide-item">
+                <strong>Updates & Data</strong>
+                <span>Check for new releases, install updates, and back up or restore presets, device profiles, snapshots, and local settings.</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="about-card about-wide shortcut-card">
+            <div class="about-card-head">
+              <span>Shortcuts</span>
+              <span class="about-pill">Keyboard + mouse</span>
+            </div>
+            <div class="shortcut-grid">
+              <div class="shortcut-group">
+                <h4>App Keyboard</h4>
+                <p><kbd>Ctrl</kbd> + <kbd>S</kbd><span>Save to Equalizer APO</span></p>
+                <p><kbd>Ctrl</kbd> + <kbd>Z</kbd><span>Undo the last edit</span></p>
+                <p><kbd>Ctrl</kbd> + <kbd>Y</kbd><span>Redo</span></p>
+                <p><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd><span>Redo</span></p>
+                <p><kbd>Esc</kbd><span>Hide the help popover</span></p>
+              </div>
+              <div class="shortcut-group">
+                <h4>Graph Mouse</h4>
+                <p><kbd>Drag band</kbd><span>Move frequency and gain</span></p>
+                <p><kbd>Right-click band</kbd><span>Delete that band</span></p>
+                <p><kbd>Mouse wheel</kbd><span>Zoom the frequency range</span></p>
+                <p><kbd>Ctrl</kbd>/<kbd>Alt</kbd> + <kbd>wheel</kbd><span>Zoom the dB range</span></p>
+                <p><kbd>Shift</kbd>/<kbd>Ctrl</kbd>/<kbd>Alt</kbd> + <kbd>wheel on band</kbd><span>Change Q; Shift is finer</span></p>
+                <p><kbd>Drag empty graph</kbd><span>Pan the graph</span></p>
+                <p><kbd>Double-click graph</kbd><span>Reset graph view</span></p>
+              </div>
+              <div class="shortcut-group">
+                <h4>EQ Rows</h4>
+                <p><kbd>Click row</kbd><span>Select a filter band</span></p>
+                <p><kbd>Right-click row</kbd><span>Delete the filter band</span></p>
+                <p><kbd>Duplicate icon</kbd><span>Copy a band beside the original</span></p>
+                <p><kbd>GraphicEQ double-click</kbd><span>Reset a band to 0 dB</span></p>
+                <p><kbd>GraphicEQ right-click</kbd><span>Remove that band</span></p>
+              </div>
+              <div class="shortcut-group">
+                <h4>Windows Shortcuts</h4>
+                <p><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>E</kbd><span>Show or hide Neon Equalizer</span></p>
+                <p><kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>0</kbd><span>Apply Flat EQ</span></p>
+                <p><kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>1</kbd><span>Apply Bass Boost</span></p>
+                <p><kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>2</kbd><span>Apply Treble Boost</span></p>
+                <p><kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>3</kbd><span>Apply Vocal Enhance</span></p>
+                <p><kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>4</kbd><span>Apply V-Shape</span></p>
+                <p><kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>5</kbd><span>Apply Loudness</span></p>
+                <p><kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>Up</kbd>/<kbd>Down</kbd><span>Raise or lower preamp by 1 dB</span></p>
+              </div>
+            </div>
+            <p class="about-muted">Windows tray and taskbar shortcuts can apply presets, quick EQ profiles, preamp changes, and device targets without opening the window.</p>
+          </div>
+
           <div class="about-card about-wide">
             <div class="about-card-head">
               <span>What is inside</span>
@@ -885,6 +971,7 @@
 
   <!-- ══ Toast Container ════════════════════════════════════════ -->
   <div class="toast-container" id="toast-container"></div>
+  <div class="help-popover" id="help-popover" role="status" aria-live="polite" style="display:none;"></div>
 
   <script type="module" src="/src/main.js"></script>
 </body>
