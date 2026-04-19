@@ -574,7 +574,7 @@ function initDeviceSelector() {
   renderDeviceSelector(appState.config.device || 'all');
   refreshAudioDeviceOptions({ silent: true });
 
-  select.addEventListener('change', () => {
+  select.addEventListener('change', async () => {
     const selected = getSelectedDeviceChoice();
     const deviceKey = normalizeDevicePresetKey(selected.value);
     const profile = getDevicePresets()[deviceKey];
@@ -585,14 +585,13 @@ function initDeviceSelector() {
       nextConfig.device = selected.value === 'all' ? null : selected.value;
       applyConfigObject(nextConfig);
       renderDeviceSelector(selected.value);
-      markDirty();
+      await applyDeviceSelectionToApo(profile.name || selected.label);
       showToast(`Loaded device preset: ${profile.name || selected.label}`, 'success');
       return;
     }
 
     appState.config.device = selected.value === 'all' ? null : selected.value;
-    updateRawConfigEditor();
-    markDirty();
+    await applyDeviceSelectionToApo(selected.label);
   });
 
   document.getElementById('btn-device-save-preset')?.addEventListener('click', saveCurrentDevicePreset);
@@ -767,9 +766,9 @@ function saveCurrentDevicePreset() {
 
   appState.config.device = deviceValue;
   renderDeviceSelector(deviceValue);
-  updateRawConfigEditor();
-  markDirty();
-  showToast(`Saved device preset: ${displayName}`, 'success');
+  applyDeviceSelectionToApo(displayName).then(() => {
+    showToast(`Saved device preset: ${displayName}`, 'success');
+  });
 }
 
 function addCustomDeviceSelection() {
@@ -777,9 +776,29 @@ function addCustomDeviceSelection() {
   if (!value) return;
   appState.config.device = value;
   renderDeviceSelector(value);
+  applyDeviceSelectionToApo(value);
+}
+
+async function applyDeviceSelectionToApo(label = '') {
   updateRawConfigEditor();
-  markDirty();
-  showToast('Custom APO device selected', 'success');
+  appState.dirty = true;
+  if (autoApplyTimer) {
+    clearTimeout(autoApplyTimer);
+    autoApplyTimer = null;
+  }
+
+  if (!window.apoAPI) {
+    updateStatus('Device changed');
+    return;
+  }
+
+  const saved = await saveConfig({ silent: true, skipUndo: true });
+  const target = label && label !== 'all' ? label : 'all devices';
+  if (saved) {
+    showToast(`APO target updated: ${target}`, 'success');
+  } else {
+    showToast('APO target change could not be saved', 'error');
+  }
 }
 
 function getSelectedDeviceChoice() {
@@ -2872,12 +2891,15 @@ async function saveConfig(options = {}) {
       appState.dirty = false;
       updateStatus(silent ? 'Auto-applied to APO' : 'Saved');
       if (!silent) showToast('Saved to APO', 'success');
+      return true;
     } else {
       updateStatus(silent ? 'Auto-apply failed' : 'Save failed', true);
       if (!silent) showToast(`Save failed: ${result.error}`, 'error');
+      return false;
     }
   } else {
     if (!silent) showToast('Config generated (browser mode)', 'info');
+    return true;
   }
 }
 

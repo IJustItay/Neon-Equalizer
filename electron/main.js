@@ -87,7 +87,7 @@ $roots = @(
   @{ Path = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture'; Flow = 'recording'; FlowLabel = 'Recording' }
 )
 $nameKeys = @(
-  '{b3f8fa53-0004-438e-9003-51a46e139bfc6},6',
+  '{b3f8fa53-0004-438e-9003-51a46e139bfc},6',
   '{a45c254e-df1c-4efd-8020-67d146a850e0},14',
   '{a45c254e-df1c-4efd-8020-67d146a850e0},2'
 )
@@ -98,11 +98,11 @@ $devices = foreach ($root in $roots) {
     $propertyPath = Join-Path $item.PSPath 'Properties'
     if (-not (Test-Path -LiteralPath $propertyPath)) { continue }
     $props = Get-ItemProperty -LiteralPath $propertyPath
-    $endpointNameProp = $props.PSObject.Properties | Where-Object { $_.Name -eq '{a45c254e-df1c-4efd-8020-67d146a850e0},2' } | Select-Object -First 1
-    $driverNameProp = $props.PSObject.Properties | Where-Object { $_.Name -eq '{b3f8fa53-0004-438e-9003-51a46e139bfc},6' } | Select-Object -First 1
-    $endpointName = if ($endpointNameProp -and $endpointNameProp.Value) { [string]$endpointNameProp.Value } else { $null }
-    $driverName = if ($driverNameProp -and $driverNameProp.Value) { [string]$driverNameProp.Value } else { $null }
-    $name = if ($endpointName -and $driverName -and $endpointName -notlike "*$driverName*") { "$endpointName ($driverName)" } else { $endpointName }
+    $deviceNameProp = $props.PSObject.Properties | Where-Object { $_.Name -eq '{a45c254e-df1c-4efd-8020-67d146a850e0},2' } | Select-Object -First 1
+    $connectionNameProp = $props.PSObject.Properties | Where-Object { $_.Name -eq '{b3f8fa53-0004-438e-9003-51a46e139bfc},6' } | Select-Object -First 1
+    $deviceName = if ($deviceNameProp -and $deviceNameProp.Value) { [string]$deviceNameProp.Value } else { $null }
+    $connectionName = if ($connectionNameProp -and $connectionNameProp.Value) { [string]$connectionNameProp.Value } else { $null }
+    $name = if ($deviceName -and $connectionName -and $deviceName -notlike "*$connectionName*") { "$deviceName ($connectionName)" } elseif ($deviceName) { $deviceName } else { $connectionName }
     if (-not $name) {
       foreach ($key in $nameKeys) {
         $prop = $props.PSObject.Properties | Where-Object { $_.Name -eq $key } | Select-Object -First 1
@@ -117,10 +117,14 @@ $devices = foreach ($root in $roots) {
     if ($item.PSChildName -match '\\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\}$') {
       $guid = $Matches[0]
     }
-    $apoValue = if ($guid) { "$name $guid" } else { $name }
+    $patternParts = @($deviceName, $connectionName, $guid) | Where-Object { $_ } | ForEach-Object { ([string]$_) -replace ';', ' ' -replace '\\s+', ' ' }
+    $apoValue = ($patternParts -join ' ').Trim()
+    if (-not $apoValue) { $apoValue = $name }
     [pscustomobject]@{
       id = $item.PSChildName
       name = $name
+      deviceName = $deviceName
+      connectionName = $connectionName
       guid = $guid
       apoValue = $apoValue
       flow = $root.Flow
