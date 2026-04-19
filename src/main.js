@@ -43,6 +43,7 @@ const AUTO_APPLY_DELAY_MS = 650;
 let autoApplyTimer = null;
 let autoApplyInFlight = false;
 let autoApplyPending = false;
+const AUTO_SAVE_APO_KEY = 'neon-equalizer:auto-save-apo';
 
 // ─── Target Customizer State ──────────────────────────────────
 let tcState = { ...TARGET_ADJUSTMENT_DEFAULTS };
@@ -475,6 +476,7 @@ function initTopBar() {
     if (e.target.checked) applyAutoPreamp();
   });
 
+  initAutoSaveAPOToggle();
   document.getElementById('btn-save').addEventListener('click', saveConfig);
   document.getElementById('btn-import').addEventListener('click', importConfig);
   document.getElementById('btn-export').addEventListener('click', exportConfig);
@@ -488,6 +490,60 @@ function initTopBar() {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redo(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveConfig(); }
   });
+}
+
+function initAutoSaveAPOToggle() {
+  const toggle = document.getElementById('auto-save-apo-enabled');
+  if (!toggle) return;
+
+  toggle.checked = getAutoSaveAPOEnabled();
+  updateSaveModeLabel(toggle.checked);
+
+  toggle.addEventListener('change', () => {
+    setAutoSaveAPOEnabled(toggle.checked);
+    updateSaveModeLabel(toggle.checked);
+
+    if (toggle.checked) {
+      showToast('Auto Save to APO enabled', 'info');
+      if (appState.dirty) scheduleAutoApply();
+    } else {
+      if (autoApplyTimer) {
+        clearTimeout(autoApplyTimer);
+        autoApplyTimer = null;
+      }
+      autoApplyPending = false;
+      updateStatus(appState.dirty ? 'Unsaved changes' : 'Manual save mode');
+      showToast('Manual Save to APO enabled', 'info');
+    }
+  });
+}
+
+function getAutoSaveAPOEnabled() {
+  try {
+    const stored = localStorage.getItem(AUTO_SAVE_APO_KEY);
+    return stored === null ? true : stored === 'true';
+  } catch {
+    return true;
+  }
+}
+
+function setAutoSaveAPOEnabled(enabled) {
+  try {
+    localStorage.setItem(AUTO_SAVE_APO_KEY, String(Boolean(enabled)));
+  } catch {
+    // Ignore storage failures; the visible toggle still controls this session.
+  }
+}
+
+function updateSaveModeLabel(enabled) {
+  const label = document.querySelector('.save-mode-text');
+  if (label) label.textContent = enabled ? 'Auto Save' : 'Manual Save';
+  const toggle = document.getElementById('auto-save-apo-enabled');
+  if (toggle) {
+    toggle.title = enabled
+      ? 'Every change is saved to Equalizer APO automatically'
+      : 'Changes wait until you press Save to APO';
+  }
 }
 
 function initWindowControls() {
@@ -1726,6 +1782,7 @@ function renderVSTPlugins() {
   if (!container) return;
 
   const plugins = Array.isArray(appState.config.vstPlugins) ? appState.config.vstPlugins : [];
+  container.closest('.vst-tool-card')?.classList.toggle('has-vst-plugins', plugins.length > 0);
   container.innerHTML = '';
 
   if (plugins.length === 0) {
@@ -1739,18 +1796,21 @@ function renderVSTPlugins() {
     row.className = 'vst-plugin-row';
     row.innerHTML = `
       <div class="vst-plugin-top">
+        <div class="vst-plugin-name">Plugin ${i + 1}</div>
         <label class="toggle-label vst-enable">
           <input type="checkbox" ${plugin.enabled === false ? '' : 'checked'}>
           <span class="toggle-switch"></span>
           Active
         </label>
-        <button class="filter-delete" title="Remove">x</button>
       </div>
+      <label class="vst-field-label" for="vst-library-${i}">DLL path</label>
       <div class="vst-plugin-path-row">
-        <input type="text" class="filter-input vst-library" value="${escapeHtml(plugin.library || '')}" placeholder="C:\\VSTPlugins\\effect.dll">
+        <input id="vst-library-${i}" type="text" class="filter-input vst-library" value="${escapeHtml(plugin.library || '')}" placeholder="C:\\VSTPlugins\\effect.dll">
         <button class="btn-ghost vst-browse" type="button">Browse</button>
       </div>
-      <textarea class="filter-input vst-parameters" placeholder='Optional APO parameters, e.g. ChunkData "..."'>${escapeHtml(plugin.parameters || '')}</textarea>
+      <label class="vst-field-label" for="vst-parameters-${i}">Parameters</label>
+      <textarea id="vst-parameters-${i}" class="filter-input vst-parameters" spellcheck="false" placeholder='Optional APO parameters, e.g. ChunkData "..."'>${escapeHtml(plugin.parameters || '')}</textarea>
+      <button class="btn-ghost danger-soft vst-remove" type="button">Remove Plugin</button>
     `;
 
     row.querySelector('.vst-enable input').addEventListener('change', e => {
@@ -1777,7 +1837,7 @@ function renderVSTPlugins() {
       renderVSTPlugins();
       markDirty();
     });
-    row.querySelector('.filter-delete').addEventListener('click', () => {
+    row.querySelector('.vst-remove').addEventListener('click', () => {
       plugins.splice(i, 1);
       renderVSTPlugins();
       markDirty();
@@ -2372,11 +2432,20 @@ function refreshUI() {
 // ═══════════════════════════════════════════════════════════
 function markDirty() {
   appState.dirty = true;
-  scheduleAutoApply();
+  if (getAutoSaveAPOEnabled()) {
+    scheduleAutoApply();
+  } else {
+    if (autoApplyTimer) {
+      clearTimeout(autoApplyTimer);
+      autoApplyTimer = null;
+    }
+    updateStatus('Unsaved changes');
+  }
 }
 
 function scheduleAutoApply() {
   if (isApplyingConfig) return;
+  if (!getAutoSaveAPOEnabled()) return;
   if (autoApplyTimer) clearTimeout(autoApplyTimer);
   autoApplyTimer = setTimeout(() => {
     autoApplyTimer = null;
@@ -2385,6 +2454,7 @@ function scheduleAutoApply() {
 }
 
 async function autoApplyConfig() {
+  if (!getAutoSaveAPOEnabled()) return;
   if (!appState.dirty || isApplyingConfig) return;
   if (autoApplyInFlight) {
     autoApplyPending = true;

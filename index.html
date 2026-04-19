@@ -82,6 +82,11 @@
       <button class="icon-btn" id="btn-export" title="Export config">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" fill="currentColor"/></svg>
       </button>
+      <label class="save-mode-toggle" title="Automatically save every change to Equalizer APO">
+        <input type="checkbox" id="auto-save-apo-enabled">
+        <span class="save-mode-track"><span class="save-mode-dot"></span></span>
+        <span class="save-mode-text">Auto Save</span>
+      </label>
       <button class="btn-save" id="btn-save">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M17 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V7l-4-4zm-5 16a3 3 0 110-6 3 3 0 010 6zm3-10H5V5h10v4z" fill="currentColor"/></svg>
         Save to APO
@@ -489,6 +494,17 @@
     <div class="panel" id="panel-tools">
       <div class="tools-grid">
 
+        <!-- VST Plugins -->
+        <div class="tool-card vst-tool-card">
+          <div class="tool-card-header">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 17h3V7H4v10zm6 0h4V3h-4v14zm7 0h3v-7h-3v7z" fill="currentColor" opacity=".75"/><path d="M3 20h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".35"/></svg>
+            <span>VST Plugins</span>
+            <button class="btn-ghost tool-header-action" id="btn-add-vst">+ Add Plugin</button>
+          </div>
+          <p class="tool-hint">Load Equalizer APO VST DLL effects and optional parameter text.</p>
+          <div id="vst-plugin-list" class="vst-plugin-list"></div>
+        </div>
+
         <!-- Convolution -->
         <div class="tool-card">
           <div class="tool-card-header">
@@ -515,17 +531,6 @@
               Enabled
             </label>
           </div>
-        </div>
-
-        <!-- VST Plugins -->
-        <div class="tool-card">
-          <div class="tool-card-header">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 17h3V7H4v10zm6 0h4V3h-4v14zm7 0h3v-7h-3v7z" fill="currentColor" opacity=".75"/><path d="M3 20h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".35"/></svg>
-            <span>VST Plugins</span>
-          </div>
-          <p class="tool-hint">Load Equalizer APO VST DLL effects and optional parameter text.</p>
-          <div id="vst-plugin-list" class="vst-plugin-list"></div>
-          <button class="btn-ghost w-full" id="btn-add-vst">+ Add VST Plugin</button>
         </div>
 
         <!-- Loudness Correction -->
