@@ -2353,6 +2353,16 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
   color: var(--green);
   background: rgba(16,185,129,0.10);
 }
+.about-pill.update-error {
+  border-color: rgba(239,68,68,0.34);
+  color: var(--red);
+  background: rgba(239,68,68,0.10);
+}
+.about-pill.update-working {
+  border-color: rgba(234,179,8,0.34);
+  color: var(--yellow);
+  background: rgba(234,179,8,0.10);
+}
 .update-version-row {
   display: flex;
   justify-content: space-between;
@@ -2369,6 +2379,37 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
   margin: 8px 0 4px;
   color: var(--text-muted);
   line-height: 1.5;
+}
+.update-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 8px;
+}
+.update-progress-bar {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.update-progress-bar span {
+  display: block;
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--cyan), var(--green));
+  box-shadow: 0 0 16px rgba(0,212,255,0.26);
+  transition: width 180ms ease;
+}
+#update-progress-label {
+  min-width: 42px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: right;
 }
 .about-facts {
   display: grid;

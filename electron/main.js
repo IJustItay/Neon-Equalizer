@@ -2,6 +2,8 @@ const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, globalShortcut, nativeI
 const path = require('path');
 const fs = require('fs');
 const { execFileSync, execSync } = require('child_process');
+const { autoUpdater } = require('electron-updater');
+const AdmZip = require('adm-zip');
 
 const APP_NAME = 'Neon Equalizer';
 const LEGACY_APP_NAMES = ['Equalizer APO Studio', 'equalizer-apo-studio'];
@@ -12,6 +14,27 @@ let mainWindow;
 let tray = null;
 const isDev = !app.isPackaged;
 const presetsDir = path.join(app.getPath('userData'), 'presets');
+const backupDir = path.join(app.getPath('documents'), 'Neon Equalizer Backups');
+const updateState = {
+  status: 'idle',
+  canAutoInstall: false,
+  isPortable: false,
+  version: app.getVersion(),
+  latestVersion: null,
+  message: 'Updater is starting...',
+  progress: null,
+  releaseUrl: 'https://github.com/IJustItay/Neon-Equalizer/releases/latest',
+  error: null
+};
+const volatileUserDataDirs = new Set([
+  'Cache',
+  'Code Cache',
+  'GPUCache',
+  'DawnCache',
+  'ShaderCache',
+  'Crashpad',
+  'logs'
+]);
 
 app.commandLine.appendSwitch('enable-experimental-web-platform-features');
 
@@ -33,6 +56,251 @@ function createTrayIcon() {
 
   const icon = nativeImage.createFromPath(iconPath);
   return icon.isEmpty() ? nativeImage.createEmpty() : icon;
+}
+
+function isPortableBuild() {
+  return Boolean(process.env.PORTABLE_EXECUTABLE_DIR || process.env.PORTABLE_EXECUTABLE_FILE);
+}
+
+function sendToRenderer(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+}
+
+function publishUpdateState(patch = {}) {
+  Object.assign(updateState, patch);
+  sendToRenderer('updater-status', { ...updateState });
+  return { ...updateState };
+}
+
+function updateInfoVersion(info) {
+  return info?.version || info?.tag || info?.releaseName || null;
+}
+
+function configureAutoUpdater() {
+  updateState.isPortable = isPortableBuild();
+  updateState.canAutoInstall = app.isPackaged && process.platform === 'win32' && !updateState.isPortable;
+
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  autoUpdater.on('checking-for-update', () => {
+    publishUpdateState({
+      status: 'checking',
+      message: 'Checking for updates...',
+      progress: null,
+      error: null
+    });
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    publishUpdateState({
+      status: 'available',
+      latestVersion: updateInfoVersion(info),
+      releaseUrl: info?.releaseNotes ? updateState.releaseUrl : updateState.releaseUrl,
+      message: `Version ${updateInfoVersion(info) || 'new'} is ready to download.`,
+      progress: null,
+      error: null
+    });
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    publishUpdateState({
+      status: 'current',
+      latestVersion: updateInfoVersion(info) || app.getVersion(),
+      message: 'You are up to date.',
+      progress: null,
+      error: null
+    });
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
+    publishUpdateState({
+      status: 'downloading',
+      message: `Downloading update... ${percent.toFixed(0)}%`,
+      progress: {
+        percent,
+        transferred: progress?.transferred || 0,
+        total: progress?.total || 0,
+        bytesPerSecond: progress?.bytesPerSecond || 0
+      },
+      error: null
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    publishUpdateState({
+      status: 'downloaded',
+      latestVersion: updateInfoVersion(info) || updateState.latestVersion,
+      message: 'Update downloaded. Restart to install it.',
+      progress: { percent: 100 },
+      error: null
+    });
+  });
+
+  autoUpdater.on('error', (error) => {
+    publishUpdateState({
+      status: 'error',
+      message: updateState.canAutoInstall
+        ? `Updater error: ${error.message}`
+        : 'Portable builds cannot install updates in-place. Use the installer build for automatic updates.',
+      error: error.message,
+      progress: null
+    });
+  });
+
+  if (!updateState.canAutoInstall) {
+    publishUpdateState({
+      status: updateState.isPortable ? 'portable' : 'manual',
+      message: updateState.isPortable
+        ? 'Portable builds can check GitHub, but in-place installation needs the Setup build.'
+        : 'Automatic installation is available in packaged Windows installer builds.',
+      progress: null
+    });
+    return;
+  }
+
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((error) => {
+      publishUpdateState({
+        status: 'error',
+        message: `Update check failed: ${error.message}`,
+        error: error.message,
+        progress: null
+      });
+    });
+  }, 2500);
+}
+
+function safeBackupName(prefix = 'Neon-Equalizer-user-data') {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return `${prefix}-${stamp}.zip`;
+}
+
+function shouldSkipUserDataEntry(entryPath, userDataPath) {
+  const relative = path.relative(userDataPath, entryPath);
+  const first = relative.split(path.sep)[0];
+  return !relative || relative.startsWith('..') || volatileUserDataDirs.has(first);
+}
+
+function addUserDataToZip(zip, entryPath, userDataPath, skipped) {
+  if (shouldSkipUserDataEntry(entryPath, userDataPath)) return;
+  let stat;
+  try {
+    stat = fs.statSync(entryPath);
+  } catch (error) {
+    skipped.push({ path: entryPath, reason: error.message });
+    return;
+  }
+
+  if (stat.isDirectory()) {
+    for (const child of fs.readdirSync(entryPath)) {
+      addUserDataToZip(zip, path.join(entryPath, child), userDataPath, skipped);
+    }
+    return;
+  }
+
+  if (!stat.isFile()) return;
+
+  const relative = path.relative(userDataPath, entryPath).replace(/\\/g, '/');
+  try {
+    zip.addFile(`userData/${relative}`, fs.readFileSync(entryPath));
+  } catch (error) {
+    skipped.push({ path: relative, reason: error.message });
+  }
+}
+
+function createUserDataBackup(options = {}) {
+  const userDataPath = app.getPath('userData');
+  const targetDir = options.dirPath || backupDir;
+  fs.mkdirSync(targetDir, { recursive: true });
+  const targetPath = options.filePath || path.join(targetDir, safeBackupName(options.prefix));
+  const zip = new AdmZip();
+  const skipped = [];
+  const manifest = {
+    app: APP_NAME,
+    version: app.getVersion(),
+    createdAt: new Date().toISOString(),
+    reason: options.reason || 'manual',
+    userDataPath,
+    format: 1
+  };
+
+  zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'));
+  addUserDataToZip(zip, userDataPath, userDataPath, skipped);
+  if (skipped.length) {
+    zip.addFile('skipped-files.json', Buffer.from(JSON.stringify(skipped, null, 2), 'utf8'));
+  }
+  zip.writeZip(targetPath);
+  return { success: true, path: targetPath, skipped: skipped.length, size: fs.statSync(targetPath).size };
+}
+
+function copyDirectoryContents(sourceDir, targetDir) {
+  fs.mkdirSync(targetDir, { recursive: true });
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    const from = path.join(sourceDir, entry.name);
+    const to = path.join(targetDir, entry.name);
+    if (entry.isDirectory()) {
+      copyDirectoryContents(from, to);
+    } else if (entry.isFile()) {
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.copyFileSync(from, to);
+    }
+  }
+}
+
+function validateBackupEntries(zip) {
+  for (const entry of zip.getEntries()) {
+    const normalized = entry.entryName.replace(/\\/g, '/');
+    if (
+      normalized.startsWith('/') ||
+      normalized.includes('../') ||
+      normalized === '..' ||
+      /^[a-zA-Z]:/.test(normalized)
+    ) {
+      throw new Error('Backup contains an unsafe path.');
+    }
+  }
+}
+
+function removeDirectorySafe(dirPath, expectedParent) {
+  const resolved = path.resolve(dirPath);
+  const parent = path.resolve(expectedParent);
+  if (!resolved.startsWith(parent + path.sep)) return;
+  fs.rmSync(resolved, { recursive: true, force: true });
+}
+
+async function performRestoreAndRelaunch(zipPath) {
+  const tempRoot = fs.mkdtempSync(path.join(app.getPath('temp'), 'neon-restore-'));
+  try {
+    app.isQuitting = true;
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.destroy();
+    }
+    await new Promise(resolve => setTimeout(resolve, 400));
+
+    createUserDataBackup({ prefix: 'Neon-Equalizer-before-restore', reason: 'pre-restore' });
+
+    const zip = new AdmZip(zipPath);
+    validateBackupEntries(zip);
+    const manifestEntry = zip.getEntry('manifest.json');
+    if (!manifestEntry) throw new Error('This is not a Neon Equalizer backup.');
+    zip.extractAllTo(tempRoot, true);
+
+    const extractedUserData = path.join(tempRoot, 'userData');
+    if (!fs.existsSync(extractedUserData)) throw new Error('Backup does not contain user data.');
+    copyDirectoryContents(extractedUserData, app.getPath('userData'));
+
+    app.relaunch();
+    app.quit();
+  } catch (error) {
+    dialog.showErrorBox('Restore failed', error.message);
+    app.isQuitting = false;
+  } finally {
+    try { removeDirectorySafe(tempRoot, app.getPath('temp')); } catch (_) {}
+  }
 }
 
 function directoryHasEntries(dirPath) {
@@ -259,6 +527,8 @@ app.whenReady().then(() => {
     fs.mkdirSync(presetsDir, { recursive: true });
   }
 
+  configureAutoUpdater();
+
   // System Tray Setup
   tray = new Tray(createTrayIcon());
   tray.setToolTip(APP_NAME);
@@ -462,6 +732,122 @@ ipcMain.handle('open-external-url', async (event, url) => {
   } catch (e) {
     return { success: false, error: e.message };
   }
+});
+
+ipcMain.handle('updater-get-state', () => ({ ...updateState }));
+
+ipcMain.handle('updater-check', async () => {
+  if (!updateState.canAutoInstall) {
+    return publishUpdateState({
+      status: updateState.isPortable ? 'portable' : 'manual',
+      message: updateState.isPortable
+        ? 'Portable builds cannot install updates in-place. Install the Setup build to use automatic updates.'
+        : 'Automatic installation is available in packaged Windows installer builds.',
+      progress: null
+    });
+  }
+
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    return publishUpdateState({
+      status: 'error',
+      message: `Update check failed: ${error.message}`,
+      error: error.message,
+      progress: null
+    });
+  }
+  return { ...updateState };
+});
+
+ipcMain.handle('updater-download', async () => {
+  if (!updateState.canAutoInstall) {
+    return publishUpdateState({
+      status: updateState.isPortable ? 'portable' : 'manual',
+      message: 'Use the Setup build to download and install updates automatically.',
+      progress: null
+    });
+  }
+
+  try {
+    createUserDataBackup({ prefix: 'Neon-Equalizer-before-update', reason: 'pre-update-download' });
+    publishUpdateState({ status: 'downloading', message: 'Starting update download...', progress: { percent: 0 }, error: null });
+    await autoUpdater.downloadUpdate();
+  } catch (error) {
+    return publishUpdateState({
+      status: 'error',
+      message: `Update download failed: ${error.message}`,
+      error: error.message,
+      progress: null
+    });
+  }
+  return { ...updateState };
+});
+
+ipcMain.handle('updater-install', async () => {
+  if (!updateState.canAutoInstall || updateState.status !== 'downloaded') {
+    return publishUpdateState({
+      status: updateState.status,
+      message: 'No downloaded update is ready to install.',
+      progress: updateState.progress
+    });
+  }
+
+  try {
+    createUserDataBackup({ prefix: 'Neon-Equalizer-before-install', reason: 'pre-update-install' });
+    publishUpdateState({ status: 'installing', message: 'Restarting to install update...', progress: { percent: 100 }, error: null });
+    app.isQuitting = true;
+    setImmediate(() => autoUpdater.quitAndInstall(false, true));
+  } catch (error) {
+    return publishUpdateState({
+      status: 'error',
+      message: `Update install failed: ${error.message}`,
+      error: error.message,
+      progress: null
+    });
+  }
+  return { ...updateState };
+});
+
+ipcMain.handle('user-data-backup', async () => {
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save Neon Equalizer user data backup',
+      defaultPath: path.join(backupDir, safeBackupName()),
+      filters: [{ name: 'Neon Equalizer Backup', extensions: ['zip'] }]
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    return createUserDataBackup({ filePath: result.filePath, reason: 'manual' });
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('user-data-restore', async () => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Restore Neon Equalizer user data backup',
+      properties: ['openFile'],
+      filters: [{ name: 'Neon Equalizer Backup', extensions: ['zip'] }]
+    });
+    if (result.canceled || !result.filePaths?.[0]) return { canceled: true };
+    const zip = new AdmZip(result.filePaths[0]);
+    validateBackupEntries(zip);
+    const hasUserData = zip.getEntries().some(entry => entry.entryName.startsWith('userData/'));
+    if (!zip.getEntry('manifest.json') || !hasUserData) {
+      return { success: false, error: 'This backup does not look like a Neon Equalizer user data backup.' };
+    }
+    setTimeout(() => performRestoreAndRelaunch(result.filePaths[0]), 700);
+    return { success: true, relaunching: true, path: result.filePaths[0] };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('user-data-open-backups', async () => {
+  fs.mkdirSync(backupDir, { recursive: true });
+  const error = await shell.openPath(backupDir);
+  return error ? { success: false, error } : { success: true, path: backupDir };
 });
 
 ipcMain.handle('select-config-dir', async () => {

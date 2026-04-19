@@ -47,8 +47,8 @@ The packaged Windows build requests administrator permission because Equalizer A
 
 Choose one Windows build:
 
-- [Portable app](https://github.com/IJustItay/Neon-Equalizer/releases/latest/download/Neon-Equalizer-2.0.7-Portable.exe) - run without installing.
-- [Installer](https://github.com/IJustItay/Neon-Equalizer/releases/latest/download/Neon-Equalizer-2.0.7-Setup.exe) - guided installation with shortcuts.
+- [Portable app](https://github.com/IJustItay/Neon-Equalizer/releases/latest/download/Neon-Equalizer-2.0.9-Portable.exe) - run without installing.
+- [Installer](https://github.com/IJustItay/Neon-Equalizer/releases/latest/download/Neon-Equalizer-2.0.9-Setup.exe) - guided installation with shortcuts.
 
 Checksums are available in [SHA256SUMS.txt](https://github.com/IJustItay/Neon-Equalizer/releases/latest/download/SHA256SUMS.txt).
 
@@ -107,7 +107,13 @@ Create the portable Windows executable:
 npm run dist
 ```
 
-The outputs are written to `release/Neon-Equalizer-2.0.7-Portable.exe` and `release/Neon-Equalizer-2.0.7-Setup.exe`.
+The outputs are written to `release/Neon-Equalizer-2.0.9-Portable.exe` and `release/Neon-Equalizer-2.0.9-Setup.exe`.
+
+Upload `release/latest.yml` and `release/Neon-Equalizer-2.0.9-Setup.exe.blockmap` with the installer release assets so installed copies can download and install updates inside the app.
+
+## User Data Backups
+
+Use About -> User Data -> Save Backup to export presets, device profiles, snapshots, A/B slots, local settings, and app storage to a `.zip` file. Use Restore Backup to merge a saved backup back into the app data folder; Neon Equalizer creates a safety backup first and restarts after restore.
 
 ## Repository Design
 

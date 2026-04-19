@@ -808,13 +808,19 @@
               <strong id="about-current-version">0.0.0</strong>
             </div>
             <div class="update-version-row">
-              <span>Latest GitHub</span>
+              <span>Latest</span>
               <strong id="about-latest-version">Checking...</strong>
             </div>
-            <p class="about-muted" id="about-update-status">Neon Equalizer checks GitHub automatically on startup and while the app is open.</p>
+            <p class="about-muted" id="about-update-status">Neon Equalizer checks for installer updates automatically on startup and while the app is open.</p>
+            <div class="update-progress" id="update-progress-wrap" style="display:none;">
+              <div class="update-progress-bar"><span id="update-progress-bar"></span></div>
+              <span id="update-progress-label">0%</span>
+            </div>
             <div class="about-actions">
               <button class="btn-accent" id="btn-check-updates">Check Now</button>
               <button class="btn-primary" id="btn-download-update" style="display:none;">Download Update</button>
+              <button class="btn-primary" id="btn-install-update" style="display:none;">Install & Restart</button>
+              <button class="btn-ghost" id="btn-open-release" style="display:none;">Release Page</button>
             </div>
           </div>
 
@@ -828,6 +834,19 @@
               <div><dt>Repository</dt><dd>IJustItay/Neon-Equalizer</dd></div>
               <div><dt>Engine</dt><dd>Equalizer APO</dd></div>
             </dl>
+          </div>
+
+          <div class="about-card">
+            <div class="about-card-head">
+              <span>User Data</span>
+              <span class="about-pill">Backup safe</span>
+            </div>
+            <p class="about-muted" id="about-data-status">Back up presets, device profiles, snapshots, A/B slots, local settings, and app storage before moving machines or installing updates.</p>
+            <div class="about-actions">
+              <button class="btn-accent" id="btn-backup-data">Save Backup</button>
+              <button class="btn-ghost" id="btn-restore-data">Restore Backup</button>
+              <button class="btn-ghost" id="btn-open-backups">Backup Folder</button>
+            </div>
           </div>
 
           <div class="about-card about-wide">

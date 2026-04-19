@@ -1,6 +1,6 @@
 {
   "name": "neon-equalizer",
-  "version": "2.0.7",
+  "version": "2.0.9",
   "description": "Professional Neon Equalizer GUI for Equalizer APO with AutoEQ and Squiglink integration",
   "keywords": [
     "equalizer-apo",
@@ -47,6 +47,14 @@
       "output": "release",
       "buildResources": "assets"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "IJustItay",
+        "repo": "Neon-Equalizer",
+        "releaseType": "release"
+      }
+    ],
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -76,6 +84,7 @@
       "requestExecutionLevel": "admin"
     },
     "nsis": {
+      "include": "build/installer.nsh",
       "artifactName": "Neon-Equalizer-${version}-Setup.exe",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
@@ -89,5 +98,9 @@
     "sharp": "^0.34.5",
     "vite": "^6.0.0",
     "wait-on": "^8.0.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "electron-updater": "^6.8.3"
   }
 }

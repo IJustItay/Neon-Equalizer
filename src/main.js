@@ -45,6 +45,7 @@ let autoApplyTimer = null;
 let autoApplyInFlight = false;
 let autoApplyPending = false;
 let latestUpdateRelease = null;
+let currentUpdaterState = null;
 let apoAudioDevices = [];
 const AUTO_SAVE_APO_KEY = 'neon-equalizer:auto-save-apo';
 const DEVICE_PRESETS_KEY = 'neon-equalizer:device-presets:v1';
@@ -827,19 +828,35 @@ function initAboutPanel() {
   document.getElementById('btn-about-github')?.addEventListener('click', () => openExternalUrl(GITHUB_REPO_URL));
   document.getElementById('btn-about-releases')?.addEventListener('click', () => openExternalUrl(`${GITHUB_REPO_URL}/releases`));
   document.getElementById('btn-check-updates')?.addEventListener('click', () => checkForUpdates({ silent: false }));
-  document.getElementById('btn-download-update')?.addEventListener('click', () => {
+  document.getElementById('btn-download-update')?.addEventListener('click', () => downloadUpdate());
+  document.getElementById('btn-install-update')?.addEventListener('click', () => installUpdate());
+  document.getElementById('btn-open-release')?.addEventListener('click', () => {
     openExternalUrl(latestUpdateRelease?.html_url || `${GITHUB_REPO_URL}/releases/latest`);
   });
+  document.getElementById('btn-backup-data')?.addEventListener('click', () => backupUserData());
+  document.getElementById('btn-restore-data')?.addEventListener('click', () => restoreUserData());
+  document.getElementById('btn-open-backups')?.addEventListener('click', () => openBackupFolder());
 }
 
 function initUpdateChecker() {
+  if (window.apoAPI?.onUpdaterStatus) {
+    window.apoAPI.onUpdaterStatus(applyUpdaterState);
+  }
   checkForUpdates({ silent: true });
   window.setInterval(() => checkForUpdates({ silent: true }), UPDATE_CHECK_INTERVAL_MS);
 }
 
 async function checkForUpdates({ silent = false } = {}) {
-  setUpdateStatus('Checking GitHub...', 'Checking...', false);
+  setUpdateStatus('Checking for updates...', 'Checking...', 'checking');
   try {
+    if (window.apoAPI?.checkForUpdates) {
+      const state = await window.apoAPI.checkForUpdates();
+      applyUpdaterState(state);
+      if (!silent && state?.status === 'current') showToast('Neon Equalizer is up to date', 'success');
+      if (!silent && state?.status === 'available') showToast(`Update available: v${state.latestVersion}`, 'info');
+      return;
+    }
+
     const release = await fetchLatestGitHubRelease();
     latestUpdateRelease = release;
     const latestVersion = normalizeVersion(release.tag_name || release.name || '');
@@ -851,16 +868,73 @@ async function checkForUpdates({ silent = false } = {}) {
         ? `This local build is newer than the latest GitHub release. Last checked ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
       : `You are up to date. Last checked ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`;
 
-    setUpdateStatus(statusText, latestVersion ? `v${latestVersion}` : 'Unknown', hasUpdate);
-    document.getElementById('btn-download-update')?.style.setProperty('display', hasUpdate ? '' : 'none');
-    document.getElementById('update-tab-badge')?.style.setProperty('display', hasUpdate ? '' : 'none');
+    setUpdateStatus(statusText, latestVersion ? `v${latestVersion}` : 'Unknown', hasUpdate ? 'available' : 'current');
+    setUpdateButtons({ status: hasUpdate ? 'available' : 'current', canAutoInstall: false });
 
     if (hasUpdate && silent) showToast(`Neon Equalizer v${latestVersion} is available`, 'info');
     if (!hasUpdate && !silent) showToast('Neon Equalizer is up to date', 'success');
     if (hasUpdate && !silent) showToast(`Update available: v${latestVersion}`, 'info');
   } catch (err) {
-    setUpdateStatus(`Update check failed: ${err.message}`, 'Unavailable', false);
+    setUpdateStatus(`Update check failed: ${err.message}`, 'Unavailable', 'error');
     if (!silent) showToast(`Update check failed: ${err.message}`, 'error');
+  }
+}
+
+async function downloadUpdate() {
+  if (!window.apoAPI?.downloadUpdate || !currentUpdaterState?.canAutoInstall) {
+    openExternalUrl(latestUpdateRelease?.html_url || `${GITHUB_REPO_URL}/releases/latest`);
+    return;
+  }
+  const state = await window.apoAPI.downloadUpdate();
+  applyUpdaterState(state);
+}
+
+async function installUpdate() {
+  if (!window.apoAPI?.installUpdate) return;
+  const state = await window.apoAPI.installUpdate();
+  applyUpdaterState(state);
+}
+
+async function backupUserData() {
+  if (!window.apoAPI?.backupUserData) {
+    showToast('User data backup is available in the desktop app', 'warning');
+    return;
+  }
+  const result = await window.apoAPI.backupUserData();
+  if (result?.canceled) return;
+  if (result?.success) {
+    setDataStatus(`Backup saved: ${result.path}`);
+    showToast('User data backup saved', 'success');
+  } else {
+    setDataStatus(`Backup failed: ${result?.error || 'unknown error'}`);
+    showToast(`Backup failed: ${result?.error || 'unknown error'}`, 'error');
+  }
+}
+
+async function restoreUserData() {
+  if (!window.apoAPI?.restoreUserData) {
+    showToast('User data restore is available in the desktop app', 'warning');
+    return;
+  }
+  const ok = window.confirm('Restore user data from a backup? Neon Equalizer will create a safety backup, restore the selected data, then restart.');
+  if (!ok) return;
+  const result = await window.apoAPI.restoreUserData();
+  if (result?.canceled) return;
+  if (result?.success) {
+    setDataStatus('Restoring backup. The app will restart.');
+    showToast('Restoring user data...', 'info');
+  } else {
+    setDataStatus(`Restore failed: ${result?.error || 'unknown error'}`);
+    showToast(`Restore failed: ${result?.error || 'unknown error'}`, 'error');
+  }
+}
+
+async function openBackupFolder() {
+  const result = await window.apoAPI?.openBackupFolder?.();
+  if (result?.success) {
+    setDataStatus(`Backup folder: ${result.path}`);
+  } else if (result?.error) {
+    showToast(`Could not open backup folder: ${result.error}`, 'error');
   }
 }
 
@@ -882,16 +956,72 @@ async function fetchLatestGitHubRelease() {
   return response.json();
 }
 
-function setUpdateStatus(message, latestLabel, hasUpdate) {
+function applyUpdaterState(state = {}) {
+  currentUpdaterState = state;
+  const latest = state.latestVersion ? `v${normalizeVersion(state.latestVersion)}` : (state.status === 'current' ? `v${APP_VERSION}` : 'Unknown');
+  setUpdateStatus(state.message || 'Updater is ready.', latest, state.status);
+  setUpdateButtons(state);
+  setUpdateProgress(state.progress);
+  if (state.status === 'available' && state.latestVersion) latestUpdateRelease = { html_url: state.releaseUrl || `${GITHUB_REPO_URL}/releases/latest` };
+}
+
+function setUpdateStatus(message, latestLabel, statusName = 'idle') {
   const latest = document.getElementById('about-latest-version');
   if (latest) latest.textContent = latestLabel;
   const status = document.getElementById('about-update-status');
   if (status) status.textContent = message;
   const pill = document.getElementById('about-update-pill');
   if (pill) {
-    pill.textContent = hasUpdate ? 'Update ready' : 'Auto check enabled';
-    pill.classList.toggle('update-ready', hasUpdate);
+    const labels = {
+      available: 'Update ready',
+      downloading: 'Downloading',
+      downloaded: 'Ready to install',
+      installing: 'Installing',
+      checking: 'Checking',
+      error: 'Needs attention',
+      portable: 'Portable mode',
+      manual: 'Manual mode',
+      current: 'Up to date'
+    };
+    pill.textContent = labels[statusName] || 'Auto check enabled';
+    pill.classList.toggle('update-ready', ['available', 'downloaded', 'current'].includes(statusName));
+    pill.classList.toggle('update-working', ['checking', 'downloading', 'installing'].includes(statusName));
+    pill.classList.toggle('update-error', ['error', 'portable', 'manual'].includes(statusName));
   }
+}
+
+function setUpdateButtons(state = {}) {
+  const download = document.getElementById('btn-download-update');
+  const install = document.getElementById('btn-install-update');
+  const release = document.getElementById('btn-open-release');
+  const hasInstallerUpdate = state.canAutoInstall && state.status === 'available';
+  const hasDownloadedUpdate = state.canAutoInstall && state.status === 'downloaded';
+  const showRelease = !state.canAutoInstall && ['available', 'manual', 'portable', 'error'].includes(state.status);
+  if (download) {
+    download.style.display = hasInstallerUpdate ? '' : 'none';
+    download.disabled = state.status === 'downloading';
+  }
+  if (install) install.style.display = hasDownloadedUpdate ? '' : 'none';
+  if (release) release.style.display = showRelease ? '' : 'none';
+  document.getElementById('update-tab-badge')?.style.setProperty(
+    'display',
+    ['available', 'downloaded', 'error'].includes(state.status) ? '' : 'none'
+  );
+}
+
+function setUpdateProgress(progress = null) {
+  const wrap = document.getElementById('update-progress-wrap');
+  const bar = document.getElementById('update-progress-bar');
+  const label = document.getElementById('update-progress-label');
+  const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
+  if (wrap) wrap.style.display = progress ? '' : 'none';
+  if (bar) bar.style.width = `${percent}%`;
+  if (label) label.textContent = `${percent.toFixed(0)}%`;
+}
+
+function setDataStatus(message) {
+  const el = document.getElementById('about-data-status');
+  if (el) el.textContent = message;
 }
 
 function normalizeVersion(value) {
