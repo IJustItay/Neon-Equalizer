@@ -1,6 +1,6 @@
 {
   "name": "neon-equalizer",
-  "version": "2.0.13",
+  "version": "2.0.14",
   "description": "Professional Neon Equalizer GUI for Equalizer APO with AutoEQ and Squiglink integration",
   "keywords": [
     "equalizer-apo",
@@ -93,7 +93,7 @@
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
-    "electron": "^33.0.0",
+    "electron": "^41.0.0",
     "electron-builder": "^26.8.1",
     "sharp": "^0.34.5",
     "vite": "^6.0.0",

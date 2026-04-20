@@ -46,6 +46,11 @@ export class FrequencyGraph {
       corrected: true,
       eq: true,
     };
+    this.curveColors = {
+      measurement: null,
+      target: '#34d399',
+      corrected: '#fb923c',
+    };
     this.curveOffsets = {
       measurement: 0,
       target: 0,
@@ -700,6 +705,12 @@ export class FrequencyGraph {
     return this.curveVisibility[curve];
   }
 
+  setCurveColor(curve, color) {
+    if (!(curve in this.curveColors)) return;
+    this.curveColors[curve] = color || null;
+    this.render();
+  }
+
   toggleCurveVisible(curve) {
     if (!(curve in this.curveVisibility)) return false;
     return this.setCurveVisible(curve, !this.curveVisibility[curve]);
@@ -1199,7 +1210,7 @@ export class FrequencyGraph {
     const targetDrawn = this._displayCurve(targetBase, 'target', baselineData);
     if (this.curveVisibility.target) {
       strokeSplCurve(targetDrawn, {
-        color: '#34d399',
+        color: this.curveColors.target || '#34d399',
         width: 1.2,
         dash: [4, 3],
       });
@@ -1210,7 +1221,7 @@ export class FrequencyGraph {
     const measMeta = this.measurementMeta || {};
     if (this.curveVisibility.measurement) {
       strokeSplCurve(measDrawn, {
-        color: measMeta.color || '#8ab4ff',
+        color: this.curveColors.measurement || measMeta.color || '#8ab4ff',
         width: measMeta.width || 1.5,
       });
     }
@@ -1236,7 +1247,7 @@ export class FrequencyGraph {
         }),
       };
       strokeSplCurve(this._displayCurve(corrected, 'corrected', baselineData), {
-        color: '#fb923c',
+        color: this.curveColors.corrected || '#fb923c',
         width: 1.5,
         dash: [6, 2, 2, 2],
       });

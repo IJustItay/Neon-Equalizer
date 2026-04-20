@@ -618,6 +618,9 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
   white-space: nowrap;
 }
 .legend-line { width: 18px; height: 2px; border-radius: 1px; }
+.legend-color-label { display:flex; align-items:center; cursor:pointer; opacity:0.5; transition:opacity var(--t-fast); }
+.legend-color-label:hover { opacity:1; }
+.legend-color-input { width:10px; height:10px; border:none; padding:0; background:none; cursor:pointer; border-radius:50%; }
 
 /* ── Tab Strip ───────────────────────────────────────────────── */
 .tab-strip {

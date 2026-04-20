@@ -571,17 +571,22 @@ function initGraph() {
     eq: 'EQ curve',
   };
   const syncCurveDisplayControls = () => {
-    if (!curveSel || !hideBtn) return;
-    const curve = curveSel.value;
-    const label = curveLabels[curve] || curve;
-    const visible = freqGraph.curveVisibility[curve] !== false;
-    const offset = freqGraph.curveOffsets[curve] || 0;
-    hideBtn.textContent = visible ? 'Hide' : 'Show';
-    hideBtn.classList.toggle('active', !visible);
-    hideBtn.title = `${visible ? 'Hide' : 'Show'} ${label}`;
-    if (offsetDown) offsetDown.title = `Move ${label} down 1 dB (current ${offset >= 0 ? '+' : ''}${offset.toFixed(1)} dB)`;
-    if (offsetUp) offsetUp.title = `Move ${label} up 1 dB (current ${offset >= 0 ? '+' : ''}${offset.toFixed(1)} dB)`;
-    if (offsetReset) offsetReset.title = `Reset ${label} offset`;
+    ['measurement', 'target', 'corrected', 'eq'].forEach(curve => {
+      const btn = document.getElementById(`gcv-${curve}`);
+      if (btn) {
+        const visible = freqGraph.curveVisibility[curve] !== false;
+        btn.classList.toggle('active', visible);
+        btn.title = `${visible ? 'Hide' : 'Show'} ${curveLabels[curve] || curve} — click to toggle; also selects for offset`;
+      }
+    });
+    if (curveSel) {
+      const curve = curveSel.value;
+      const label = curveLabels[curve] || curve;
+      const offset = freqGraph.curveOffsets[curve] || 0;
+      if (offsetDown) offsetDown.title = `Move ${label} down 1 dB (${offset >= 0 ? '+' : ''}${offset.toFixed(1)} dB)`;
+      if (offsetUp) offsetUp.title = `Move ${label} up 1 dB (${offset >= 0 ? '+' : ''}${offset.toFixed(1)} dB)`;
+      if (offsetReset) offsetReset.title = `Reset ${label} offset`;
+    }
     baselineSel?.classList.toggle('active', freqGraph.baselineMode !== 'none');
   };
   baselineSel?.addEventListener('change', (e) => {
@@ -590,10 +595,14 @@ function initGraph() {
     updateGraphLegend();
   });
   curveSel?.addEventListener('change', syncCurveDisplayControls);
-  hideBtn?.addEventListener('click', () => {
-    freqGraph.toggleCurveVisible(curveSel.value);
-    syncCurveDisplayControls();
-    updateGraphLegend();
+  document.querySelectorAll('.gcv-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const curve = btn.dataset.curve;
+      freqGraph.toggleCurveVisible(curve);
+      if (curveSel) curveSel.value = curve;
+      syncCurveDisplayControls();
+      updateGraphLegend();
+    });
   });
   offsetDown?.addEventListener('click', () => {
     freqGraph.adjustCurveOffset(curveSel.value, -1);
@@ -718,15 +727,16 @@ function updateGraphLegend() {
     const measurementMeta = freqGraph.measurementMeta || {};
     if (freqGraph.measurementData && visible.measurement !== false) {
       items.push({
-        color: measurementMeta.color || '#8ab4ff',
+        color: freqGraph.curveColors?.measurement || measurementMeta.color || '#8ab4ff',
         label: `${measurementMeta.label || 'Measurement'}${offsetSuffix('measurement')}`,
+        curveKey: 'measurement',
       });
     }
     if (freqGraph.targetData && visible.target !== false) {
-      items.push({ color: '#34d399', label: `Target${offsetSuffix('target')}`, style: 'dashed' });
+      items.push({ color: freqGraph.curveColors?.target || '#34d399', label: `Target${offsetSuffix('target')}`, style: 'dashed', curveKey: 'target' });
     }
     if (freqGraph.measurementData && visible.corrected !== false && appState?.config?.filters?.some(f => f.enabled && !f.isEffect)) {
-      items.push({ color: '#fb923c', label: `Corrected${offsetSuffix('corrected')}`, style: 'dotdash' });
+      items.push({ color: freqGraph.curveColors?.corrected || '#fb923c', label: `Corrected${offsetSuffix('corrected')}`, style: 'dotdash', curveKey: 'corrected' });
     }
     if (freqGraph.graphicEQ?.bands?.some(b => Math.abs(b.gain) > 0.001)) {
       items.push({ color: '#22d3ee', label: 'Graphic EQ', style: 'dashed' });
@@ -761,10 +771,20 @@ function updateGraphLegend() {
       } else {
         swatch = `<div class="legend-line" style="background:${i.color};"></div>`;
       }
-      return `<div class="graph-legend-item">${swatch}${i.label}</div>`;
+      const colorPicker = i.curveKey
+        ? `<label class="legend-color-label" title="Click to change ${i.label} color"><input type="color" class="legend-color-input" data-curve="${i.curveKey}" value="${i.color}"></label>`
+        : '';
+      return `<div class="graph-legend-item">${swatch}${i.label}${colorPicker}</div>`;
     }).join('');
   }
   updateAutoEQButtonState();
+
+  document.getElementById('graph-legend')?.addEventListener('change', (e) => {
+    if (e.target.classList.contains('legend-color-input')) {
+      freqGraph.setCurveColor(e.target.dataset.curve, e.target.value);
+      updateGraphLegend();
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3153,20 +3173,23 @@ function initAdvancedPanel() {
     });
   });
 
-  // Presets
+  // Presets — shared localStorage store, APO file as optional bonus
   document.getElementById('btn-save-new-preset').addEventListener('click', async () => {
-    const name = document.getElementById('preset-name-input').value.trim();
+    const nameInput = document.getElementById('preset-name-input');
+    const name = nameInput?.value.trim();
     if (!name) return;
-    if (window.apoAPI) {
-      await window.apoAPI.savePreset(name, serializeConfig(appState.config));
-      loadPresetsList();
-      document.getElementById('preset-name-input').value = '';
-      showToast('Preset saved', 'success');
-    } else {
-      showToast('Presets require APO connection', 'warning');
-    }
+    const presets = getQuickPresets();
+    const next = { name, updatedAt: new Date().toISOString(), config: snapshotCurrentConfig() };
+    const idx = presets.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+    if (idx >= 0) presets[idx] = next; else presets.push(next);
+    setQuickPresets(presets);
+    if (window.apoAPI) await window.apoAPI.savePreset(name, serializeConfig(appState.config)).catch(() => {});
+    if (nameInput) nameInput.value = '';
+    loadPresetsList();
+    renderQuickPresetSelect();
+    showToast(`Preset saved: ${name}`, 'success');
   });
-  if (window.apoAPI) loadPresetsList();
+  loadPresetsList();
 
   document.getElementById('btn-import-squig-eq')?.addEventListener('click', () => importAdvancedEQ('squig'));
   document.getElementById('btn-import-wavelet-eq')?.addEventListener('click', () => importAdvancedEQ('wavelet'));
@@ -3193,31 +3216,32 @@ function initAdvancedPanel() {
   });
 }
 
-async function loadPresetsList() {
+function loadPresetsList() {
   const container = document.getElementById('preset-list');
-  if (!window.apoAPI) { container.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">Requires APO</div>'; return; }
-  const presets = await window.apoAPI.getPresets();
-  if (presets.length === 0) { container.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">No presets saved</div>'; return; }
+  if (!container) return;
+  const presets = getQuickPresets().sort((a, b) => a.name.localeCompare(b.name));
+  if (presets.length === 0) {
+    container.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">No presets saved yet</div>';
+    return;
+  }
   container.innerHTML = presets.map(p => `
     <div class="preset-row">
-      <span>${escapeHtml(p.name.replace('.txt',''))}</span>
+      <span>${escapeHtml(p.name)}</span>
       <div style="display:flex;gap:4px;">
-        <button class="btn-ghost" style="padding:3px 8px;font-size:11px;" onclick="window.applyPreset('${p.name}')">Load</button>
-        <button class="btn-ghost" style="padding:3px 8px;font-size:11px;" onclick="window.deletePreset('${p.name}')">Del</button>
+        <button class="btn-ghost" style="padding:3px 8px;font-size:11px;" onclick="window.applyPreset(${JSON.stringify(p.name)})">Load</button>
+        <button class="btn-ghost" style="padding:3px 8px;font-size:11px;" onclick="window.deletePreset(${JSON.stringify(p.name)})">Del</button>
       </div>
     </div>
   `).join('');
 }
 
-window.applyPreset = async (filename) => {
-  if (!window.apoAPI) return;
-  const content = await window.apoAPI.readPreset(filename);
-  if (content) { loadConfigFromText(content); showToast('Preset loaded', 'success'); }
+window.applyPreset = (name) => {
+  loadQuickPreset(name);
 };
-window.deletePreset = async (filename) => {
-  if (!window.apoAPI) return;
-  await window.apoAPI.deletePreset(filename);
+window.deletePreset = (name) => {
+  setQuickPresets(getQuickPresets().filter(p => p.name !== name));
   loadPresetsList();
+  renderQuickPresetSelect();
 };
 
 function renderIncludes() {
@@ -4138,25 +4162,29 @@ function initTargetPicker() {
 // TARGET CUSTOMIZER
 // ═══════════════════════════════════════════════════════════
 function initTargetCustomizer() {
-  const tiltSlider   = document.getElementById('tc-tilt');
-  const bassSlider   = document.getElementById('tc-bass');
-  const trebleSlider = document.getElementById('tc-treble');
-  const tiltVal      = document.getElementById('tc-tilt-val');
-  const bassVal      = document.getElementById('tc-bass-val');
-  const trebleVal    = document.getElementById('tc-treble-val');
-  const presetSel    = document.getElementById('tc-preset-select');
-  const resetBtn     = document.getElementById('tc-reset');
+  const tiltSlider    = document.getElementById('tc-tilt');
+  const bassSlider    = document.getElementById('tc-bass');
+  const trebleSlider  = document.getElementById('tc-treble');
+  const earGainSlider = document.getElementById('tc-ear-gain');
+  const tiltVal       = document.getElementById('tc-tilt-val');
+  const bassVal       = document.getElementById('tc-bass-val');
+  const trebleVal     = document.getElementById('tc-treble-val');
+  const earGainVal    = document.getElementById('tc-ear-gain-val');
+  const presetSel     = document.getElementById('tc-preset-select');
+  const resetBtn      = document.getElementById('tc-reset');
 
   if (!tiltSlider) return;
 
   const applyTC = () => {
-    tcState.tilt   = parseFloat(tiltSlider.value);
-    tcState.bass   = parseFloat(bassSlider.value);
-    tcState.treble = parseFloat(trebleSlider.value);
+    tcState.tilt    = parseFloat(tiltSlider.value);
+    tcState.bass    = parseFloat(bassSlider.value);
+    tcState.treble  = parseFloat(trebleSlider.value);
+    tcState.earGain = earGainSlider ? parseFloat(earGainSlider.value) : 0;
 
     tiltVal.textContent   = `${tcState.tilt >= 0 ? '+' : ''}${tcState.tilt.toFixed(1)} dB/oct`;
     bassVal.textContent   = `${tcState.bass >= 0 ? '+' : ''}${tcState.bass.toFixed(1)} dB`;
     trebleVal.textContent = `${tcState.treble >= 0 ? '+' : ''}${tcState.treble.toFixed(1)} dB`;
+    if (earGainVal) earGainVal.textContent = `${tcState.earGain >= 0 ? '+' : ''}${tcState.earGain.toFixed(1)} dB`;
 
     rebuildCustomTarget();
   };
@@ -4164,15 +4192,16 @@ function initTargetCustomizer() {
   tiltSlider.addEventListener('input', applyTC);
   bassSlider.addEventListener('input', applyTC);
   trebleSlider.addEventListener('input', applyTC);
+  earGainSlider?.addEventListener('input', applyTC);
 
   presetSel.addEventListener('change', (e) => {
     const p = e.target.value;
     if (!p) return;
     const presets = {
-      neutral: { tilt: 0,    bass: 0,  treble: 0 },
-      harman:  { tilt: 0,    bass: 6,  treble: -2 },
-      warm:    { tilt: -0.5, bass: 3,  treble: -3 },
-      bright:  { tilt: 0.5,  bass: -2, treble: 3 },
+      neutral: { tilt: 0,    bass: 0,  treble: 0,  earGain: 0 },
+      harman:  { tilt: 0,    bass: 6,  treble: -2, earGain: 0 },
+      warm:    { tilt: -0.5, bass: 3,  treble: -3, earGain: 0 },
+      bright:  { tilt: 0.5,  bass: -2, treble: 3,  earGain: 0 },
     };
     const vals = presets[p];
     if (!vals) return;
@@ -4180,6 +4209,7 @@ function initTargetCustomizer() {
     tiltSlider.value   = vals.tilt;
     bassSlider.value   = vals.bass;
     trebleSlider.value = vals.treble;
+    if (earGainSlider) earGainSlider.value = vals.earGain;
     applyTC();
     e.target.value = '';
   });
@@ -4189,6 +4219,7 @@ function initTargetCustomizer() {
     tiltSlider.value   = 0;
     bassSlider.value   = 0;
     trebleSlider.value = 0;
+    if (earGainSlider) earGainSlider.value = 0;
     applyTC();
   });
 }
