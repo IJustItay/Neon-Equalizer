@@ -27,34 +27,7 @@
 
 ---
 
-## 📸 Screenshots
-
-<table>
-  <tr>
-    <td><img src="docs/images/dark-equalizer.png" alt="Parametric EQ — dark theme" width="680"></td>
-    <td><img src="docs/images/light-equalizer.png" alt="Parametric EQ — light theme" width="680"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Parametric EQ · dark theme</sub></td>
-    <td align="center"><sub>Parametric EQ · light theme</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/dark-autoeq.png" alt="AutoEQ & Headphones" width="680"></td>
-    <td><img src="docs/images/dark-tools.png" alt="Tools panel" width="680"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>AutoEQ &amp; Headphone Targets</sub></td>
-    <td align="center"><sub>Tools — VST, Convolution, Loudness</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/dark-advanced.png" alt="Advanced panel" width="680"></td>
-    <td><img src="docs/images/dark-about.png" alt="About panel" width="680"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Advanced — Presets, Expressions, Raw Config</sub></td>
-    <td align="center"><sub>About — Updates, Shortcuts, Easy Guide</sub></td>
-  </tr>
-</table>
+![Neon Equalizer](docs/images/dark-equalizer.png)
 
 ---
 
