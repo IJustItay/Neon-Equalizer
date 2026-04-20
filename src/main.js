@@ -79,6 +79,8 @@ function publishSquigSourceSelection(source, reason = 'browser') {
 const CONTROL_HELP = {
   'btn-theme-toggle': 'Switch between the neon dark theme and the brighter light theme.',
   'btn-help-mode': 'Turn help mode on or off. When it is on, click any control to learn what it does.',
+  'btn-zoom-out': 'Make all app text and elements smaller (Ctrl+−).',
+  'btn-zoom-in': 'Make all app text and elements larger (Ctrl++).',
   'btn-minimize': 'Hide Neon Equalizer in the taskbar without closing it.',
   'btn-maximize': 'Maximize the window or restore it to the previous size.',
   'btn-close': 'Close the Neon Equalizer window.',
@@ -225,6 +227,37 @@ function initThemeSystem() {
     safeLocalStorageSet(THEME_KEY, next);
     showToast(`${next === 'light' ? 'Light' : 'Dark'} theme enabled`, 'info');
   });
+}
+
+// ─── UI Zoom ──────────────────────────────────────────────────
+const ZOOM_KEY = 'neonEqUiZoom';
+const ZOOM_LEVELS = [0.80, 0.88, 0.94, 1.00, 1.07, 1.15, 1.25];
+const ZOOM_DEFAULT_IDX = 3;
+
+function getZoomIdx() {
+  const stored = parseFloat(safeLocalStorageGet(ZOOM_KEY));
+  if (!isNaN(stored)) {
+    const idx = ZOOM_LEVELS.findIndex(z => Math.abs(z - stored) < 0.001);
+    if (idx >= 0) return idx;
+  }
+  return ZOOM_DEFAULT_IDX;
+}
+
+function applyZoom(idx) {
+  const z = ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, idx))];
+  document.documentElement.style.zoom = z;
+  safeLocalStorageSet(ZOOM_KEY, z);
+  const label = document.getElementById('zoom-level-label');
+  if (label) label.textContent = Math.round(z * 100) + '%';
+  document.getElementById('btn-zoom-out').disabled = idx <= 0;
+  document.getElementById('btn-zoom-in').disabled = idx >= ZOOM_LEVELS.length - 1;
+}
+
+function initZoomSystem() {
+  const idx = getZoomIdx();
+  applyZoom(idx);
+  document.getElementById('btn-zoom-out')?.addEventListener('click', () => applyZoom(getZoomIdx() - 1));
+  document.getElementById('btn-zoom-in')?.addEventListener('click', () => applyZoom(getZoomIdx() + 1));
 }
 
 function applyAppTheme(theme) {
@@ -412,6 +445,7 @@ function safeLocalStorageSet(key, value) {
 // ─── Init ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   initThemeSystem();
+  initZoomSystem();
   initGraph();
   initNavigation();
   initTopBar();
@@ -875,6 +909,9 @@ function initTopBar() {
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
     if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redo(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveConfig(); }
+    if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) { e.preventDefault(); applyZoom(getZoomIdx() + 1); }
+    if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); applyZoom(getZoomIdx() - 1); }
+    if ((e.ctrlKey || e.metaKey) && e.key === '0') { e.preventDefault(); applyZoom(ZOOM_DEFAULT_IDX); }
   });
 }
 

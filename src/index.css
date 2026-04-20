@@ -189,6 +189,39 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; colo
   color: var(--cyan);
   background: var(--cyan-dim);
 }
+
+/* Zoom control cluster in titlebar */
+.titlebar-zoom {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-left: 1px solid var(--bg-border);
+  border-right: 1px solid var(--bg-border);
+  -webkit-app-region: no-drag;
+}
+.titlebar-zoom-btn {
+  width: 32px;
+  height: var(--titlebar-h);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.titlebar-zoom-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+.titlebar-zoom-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.titlebar-zoom-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 36px;
+  text-align: center;
+  cursor: default;
+  padding: 0 2px;
+}
+
 [data-theme="light"] .titlebar-btn:hover { background: rgba(15,23,42,0.07); }
 
 /* ── Top Bar ─────────────────────────────────────────────────── */
@@ -2374,16 +2407,14 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
     var(--bg2);
 }
 .about-hero {
-  min-height: 190px;
+  min-height: 180px;
   display: flex;
   align-items: center;
   gap: 22px;
-  padding: 24px;
-  border: 1px solid rgba(255,255,255,0.08);
+  padding: 22px 24px;
+  border: 1px solid var(--bg-border);
   border-radius: var(--radius-md);
-  background:
-    linear-gradient(135deg, rgba(0,212,255,0.12), rgba(16,185,129,0.04) 52%, rgba(236,72,153,0.08)),
-    rgba(5,5,8,0.64);
+  background: linear-gradient(135deg, rgba(0,212,255,0.08) 0%, transparent 50%), var(--bg3);
 }
 .about-logo {
   width: 104px;
@@ -2398,11 +2429,11 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
   max-width: 720px;
 }
 .about-kicker {
-  color: var(--green);
-  font-size: 11px;
-  font-weight: 800;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0;
+  letter-spacing: 1px;
 }
 .about-copy h2 {
   font-size: 34px;
@@ -2429,9 +2460,9 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
 }
 .about-card {
   padding: 16px;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid var(--bg-border);
   border-radius: var(--radius-md);
-  background: rgba(9,9,16,0.78);
+  background: var(--bg3);
 }
 .about-wide { grid-column: 1 / -1; }
 .about-card-head {
@@ -2439,20 +2470,28 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  padding-bottom: 10px;
   margin-bottom: 12px;
-  font-size: 13px;
-  font-weight: 800;
+  border-bottom: 1px solid var(--bg-border);
+  font-size: 12px;
+  font-weight: 700;
   color: var(--text-primary);
 }
 .about-pill {
-  padding: 2px 7px;
-  border: 1px solid rgba(0,212,255,0.22);
+  padding: 2px 8px;
+  border: 1px solid rgba(0,212,255,0.28);
   border-radius: var(--radius-sm);
   color: var(--cyan);
-  background: rgba(0,212,255,0.08);
+  background: rgba(0,212,255,0.09);
   font-size: 10px;
   font-weight: 700;
   white-space: nowrap;
+}
+/* Static / non-status labels — neutral, no accent color */
+.about-pill-neutral {
+  border-color: var(--bg-border-h);
+  color: var(--text-muted);
+  background: var(--bg-surface);
 }
 .about-pill.update-ready {
   border-color: rgba(16,185,129,0.34);
@@ -2544,70 +2583,66 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
   font-size: 11px;
 }
 
-.guide-card {
-  background:
-    linear-gradient(135deg, rgba(0,212,255,0.08), rgba(16,185,129,0.04) 48%, rgba(236,72,153,0.05)),
-    rgba(9,9,16,0.78);
-}
 .guide-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 12px;
+  gap: 8px;
+  margin-top: 4px;
 }
 .guide-item {
   min-width: 0;
-  padding: 12px;
+  padding: 11px 12px;
   border: 1px solid var(--bg-border);
-  border-radius: var(--radius-md);
-  background: rgba(255,255,255,0.035);
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
 }
 .guide-item strong {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
 }
 .guide-item span {
   display: block;
   color: var(--text-secondary);
-  line-height: 1.45;
-}
-.shortcut-card {
-  background:
-    linear-gradient(135deg, rgba(236,72,153,0.07), rgba(0,212,255,0.045) 48%, rgba(16,185,129,0.06)),
-    rgba(9,9,16,0.78);
+  font-size: 11px;
+  line-height: 1.5;
 }
 .shortcut-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 12px;
+  gap: 8px;
+  margin-top: 4px;
 }
 .shortcut-group {
   min-width: 0;
-  padding: 12px;
+  padding: 11px 12px;
   border: 1px solid var(--bg-border);
-  border-radius: var(--radius-md);
-  background: rgba(255,255,255,0.035);
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
 }
 .shortcut-group h4 {
   margin: 0 0 8px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--bg-border);
 }
 .shortcut-group p {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 5px;
-  margin: 0 0 7px;
+  margin: 0 0 6px;
   color: var(--text-secondary);
   line-height: 1.35;
 }
 .shortcut-group p:last-child { margin-bottom: 0; }
 .shortcut-group span {
   flex: 1 1 100%;
+  font-size: 10.5px;
   color: var(--text-muted);
 }
 kbd {
@@ -2704,12 +2739,12 @@ body.help-mode [data-help] {
     radial-gradient(circle at 84% 18%, rgba(4,120,87,0.08), transparent 30%),
     var(--bg2);
 }
-[data-theme="light"] .about-hero,
-[data-theme="light"] .about-card,
-[data-theme="light"] .guide-card {
-  background:
-    linear-gradient(135deg, rgba(0,143,189,0.08), rgba(4,120,87,0.035) 52%, rgba(192,38,111,0.045)),
-    rgba(255,255,255,0.88);
+[data-theme="light"] .about-hero {
+  background: linear-gradient(135deg, rgba(0,143,189,0.07) 0%, transparent 50%), rgba(255,255,255,0.88);
+  border-color: var(--bg-border);
+}
+[data-theme="light"] .about-card {
+  background: rgba(255,255,255,0.88);
   border-color: var(--bg-border);
 }
 [data-theme="light"] .guide-item,

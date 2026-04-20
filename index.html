@@ -32,6 +32,11 @@
       <button class="titlebar-btn titlebar-action" id="btn-help-mode" title="Explain buttons">
         <span class="titlebar-action-text" aria-hidden="true">?</span>
       </button>
+      <div class="titlebar-zoom">
+        <button class="titlebar-btn titlebar-zoom-btn" id="btn-zoom-out" title="Smaller UI">A−</button>
+        <span class="titlebar-zoom-label" id="zoom-level-label">100%</span>
+        <button class="titlebar-btn titlebar-zoom-btn" id="btn-zoom-in" title="Larger UI">A+</button>
+      </div>
       <button class="titlebar-btn" id="btn-minimize" title="Minimize">
         <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
       </button>
@@ -847,7 +852,7 @@
           <div class="about-card">
             <div class="about-card-head">
               <span>Build</span>
-              <span class="about-pill">Windows</span>
+              <span class="about-pill about-pill-neutral">Windows</span>
             </div>
             <dl class="about-facts">
               <div><dt>Version</dt><dd id="about-version-detail">0.0.0</dd></div>
@@ -859,7 +864,7 @@
           <div class="about-card">
             <div class="about-card-head">
               <span>User Data</span>
-              <span class="about-pill">Backup safe</span>
+              <span class="about-pill about-pill-neutral">Backup safe</span>
             </div>
             <p class="about-muted" id="about-data-status">Back up presets, device profiles, snapshots, A/B slots, local settings, and app storage before moving machines or installing updates.</p>
             <div class="about-actions">
@@ -869,10 +874,10 @@
             </div>
           </div>
 
-          <div class="about-card about-wide guide-card">
+          <div class="about-card about-wide">
             <div class="about-card-head">
               <span>Easy Guide</span>
-              <span class="about-pill">Click ? for help</span>
+              <span class="about-pill about-pill-neutral">Click ? for help</span>
             </div>
             <p class="about-muted">Turn on the ? button in the titlebar, then click any button, slider, checkbox, or list to see a simple explanation before it does anything.</p>
             <div class="guide-grid">
@@ -903,10 +908,10 @@
             </div>
           </div>
 
-          <div class="about-card about-wide shortcut-card">
+          <div class="about-card about-wide">
             <div class="about-card-head">
               <span>Shortcuts</span>
-              <span class="about-pill">Keyboard + mouse</span>
+              <span class="about-pill about-pill-neutral">Keyboard + mouse</span>
             </div>
             <div class="shortcut-grid">
               <div class="shortcut-group">
