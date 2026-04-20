@@ -41,6 +41,9 @@ let lastTraceCaptureContext = null;
 let selectedSquigSourceId = '';
 let selectedSquigSource = null;
 const AUTO_APPLY_DELAY_MS = 650;
+const AUTO_SNAPSHOT_DELAY_MS = 8000; // save auto-snapshot 8 s after last change
+const AUTO_SNAPSHOT_MAX = 5;         // keep at most this many auto-snapshots per mode
+let autoSnapshotTimer = null;
 let autoApplyTimer = null;
 let autoApplyInFlight = false;
 let autoApplyPending = false;
@@ -59,7 +62,6 @@ const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const EQ_SNAPSHOT_KEY = 'neon-equalizer:eq-snapshots:v1';
 const EQ_AB_KEY = 'neon-equalizer:eq-ab:v1';
 const EQ_SNAPSHOT_LIMIT = 24;
-
 // ─── Target Customizer State ──────────────────────────────────
 let tcState = { ...TARGET_ADJUSTMENT_DEFAULTS };
 let tcBaseTargetData = null; // original target before customizer tweaks
@@ -571,17 +573,22 @@ function initGraph() {
     eq: 'EQ curve',
   };
   const syncCurveDisplayControls = () => {
-    if (!curveSel || !hideBtn) return;
-    const curve = curveSel.value;
-    const label = curveLabels[curve] || curve;
-    const visible = freqGraph.curveVisibility[curve] !== false;
-    const offset = freqGraph.curveOffsets[curve] || 0;
-    hideBtn.textContent = visible ? 'Hide' : 'Show';
-    hideBtn.classList.toggle('active', !visible);
-    hideBtn.title = `${visible ? 'Hide' : 'Show'} ${label}`;
-    if (offsetDown) offsetDown.title = `Move ${label} down 1 dB (current ${offset >= 0 ? '+' : ''}${offset.toFixed(1)} dB)`;
-    if (offsetUp) offsetUp.title = `Move ${label} up 1 dB (current ${offset >= 0 ? '+' : ''}${offset.toFixed(1)} dB)`;
-    if (offsetReset) offsetReset.title = `Reset ${label} offset`;
+    ['measurement', 'target', 'corrected', 'eq'].forEach(curve => {
+      const btn = document.getElementById(`gcv-${curve}`);
+      if (btn) {
+        const visible = freqGraph.curveVisibility[curve] !== false;
+        btn.classList.toggle('active', visible);
+        btn.title = `${visible ? 'Hide' : 'Show'} ${curveLabels[curve] || curve} — click to toggle; also selects for offset`;
+      }
+    });
+    if (curveSel) {
+      const curve = curveSel.value;
+      const label = curveLabels[curve] || curve;
+      const offset = freqGraph.curveOffsets[curve] || 0;
+      if (offsetDown) offsetDown.title = `Move ${label} down 1 dB (${offset >= 0 ? '+' : ''}${offset.toFixed(1)} dB)`;
+      if (offsetUp) offsetUp.title = `Move ${label} up 1 dB (${offset >= 0 ? '+' : ''}${offset.toFixed(1)} dB)`;
+      if (offsetReset) offsetReset.title = `Reset ${label} offset`;
+    }
     baselineSel?.classList.toggle('active', freqGraph.baselineMode !== 'none');
   };
   baselineSel?.addEventListener('change', (e) => {
@@ -590,10 +597,14 @@ function initGraph() {
     updateGraphLegend();
   });
   curveSel?.addEventListener('change', syncCurveDisplayControls);
-  hideBtn?.addEventListener('click', () => {
-    freqGraph.toggleCurveVisible(curveSel.value);
-    syncCurveDisplayControls();
-    updateGraphLegend();
+  document.querySelectorAll('.gcv-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const curve = btn.dataset.curve;
+      freqGraph.toggleCurveVisible(curve);
+      if (curveSel) curveSel.value = curve;
+      syncCurveDisplayControls();
+      updateGraphLegend();
+    });
   });
   offsetDown?.addEventListener('click', () => {
     freqGraph.adjustCurveOffset(curveSel.value, -1);
@@ -640,6 +651,10 @@ function initGraph() {
   document.getElementById('graph-screenshot').addEventListener('click', () => {
     const ok = freqGraph.saveScreenshot();
     showToast(ok ? 'Graph saved as PNG' : 'Screenshot failed', ok ? 'success' : 'error');
+  });
+
+  document.getElementById('graph-load-meas').addEventListener('click', () => {
+    document.getElementById('btn-import-trace').click();
   });
 
   updateGraphLegend();
@@ -714,15 +729,16 @@ function updateGraphLegend() {
     const measurementMeta = freqGraph.measurementMeta || {};
     if (freqGraph.measurementData && visible.measurement !== false) {
       items.push({
-        color: measurementMeta.color || '#8ab4ff',
+        color: freqGraph.curveColors?.measurement || measurementMeta.color || '#8ab4ff',
         label: `${measurementMeta.label || 'Measurement'}${offsetSuffix('measurement')}`,
+        curveKey: 'measurement',
       });
     }
     if (freqGraph.targetData && visible.target !== false) {
-      items.push({ color: '#34d399', label: `Target${offsetSuffix('target')}`, style: 'dashed' });
+      items.push({ color: freqGraph.curveColors?.target || '#34d399', label: `Target${offsetSuffix('target')}`, style: 'dashed', curveKey: 'target' });
     }
     if (freqGraph.measurementData && visible.corrected !== false && appState?.config?.filters?.some(f => f.enabled && !f.isEffect)) {
-      items.push({ color: '#fb923c', label: `Corrected${offsetSuffix('corrected')}`, style: 'dotdash' });
+      items.push({ color: freqGraph.curveColors?.corrected || '#fb923c', label: `Corrected${offsetSuffix('corrected')}`, style: 'dotdash', curveKey: 'corrected' });
     }
     if (freqGraph.graphicEQ?.bands?.some(b => Math.abs(b.gain) > 0.001)) {
       items.push({ color: '#22d3ee', label: 'Graphic EQ', style: 'dashed' });
@@ -757,10 +773,20 @@ function updateGraphLegend() {
       } else {
         swatch = `<div class="legend-line" style="background:${i.color};"></div>`;
       }
-      return `<div class="graph-legend-item">${swatch}${i.label}</div>`;
+      const colorPicker = i.curveKey
+        ? `<label class="legend-color-label" title="Click to change ${i.label} color"><input type="color" class="legend-color-input" data-curve="${i.curveKey}" value="${i.color}"></label>`
+        : '';
+      return `<div class="graph-legend-item">${swatch}${i.label}${colorPicker}</div>`;
     }).join('');
   }
   updateAutoEQButtonState();
+
+  document.getElementById('graph-legend')?.addEventListener('change', (e) => {
+    if (e.target.classList.contains('legend-color-input')) {
+      freqGraph.setCurveColor(e.target.dataset.curve, e.target.value);
+      updateGraphLegend();
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -839,7 +865,7 @@ function initTopBar() {
   initAutoSaveAPOToggle();
   document.getElementById('btn-save').addEventListener('click', saveConfig);
   document.getElementById('btn-import').addEventListener('click', importConfig);
-  document.getElementById('btn-export').addEventListener('click', exportConfig);
+  document.getElementById('btn-export').addEventListener('click', () => exportAdvancedEQ('apo'));
   document.getElementById('config-path-btn').addEventListener('click', changeConfigPath);
   document.getElementById('btn-undo').addEventListener('click', undo);
   document.getElementById('btn-redo').addEventListener('click', redo);
@@ -1740,24 +1766,63 @@ function syncImportedPreamp() {
 }
 
 async function exportAdvancedEQ(kind) {
+  if (kind === 'poweramp') {
+    const xml = buildPowerampXML();
+    if (!xml) return;
+    if (window.apoAPI?.saveFile) {
+      const result = await window.apoAPI.saveFile(xml, {
+        title: 'Export Poweramp EQ',
+        defaultPath: 'CustomEQ.pa_peq',
+        filters: [{ name: 'Poweramp EQ', extensions: ['pa_peq'] }, { name: 'All Files', extensions: ['*'] }]
+      });
+      if (result?.success) { showToast('Poweramp EQ saved', 'success'); return; }
+      if (result?.canceled) return;
+    }
+    const blob = new Blob([xml], { type: 'application/xml' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'CustomEQ.pa_peq';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showToast('Poweramp EQ downloaded', 'success');
+    return;
+  }
+
+  if (kind === 'apo') {
+    const text = serializeConfig(appState.config);
+    if (window.apoAPI?.saveFile) {
+      const result = await window.apoAPI.saveFile(text, {
+        title: 'Export APO Config',
+        defaultPath: 'config.txt',
+        filters: [{ name: 'Config', extensions: ['txt', 'cfg'] }, { name: 'All Files', extensions: ['*'] }]
+      });
+      if (result?.success) { showToast('APO Config saved', 'success'); return; }
+      if (result?.canceled) return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('APO Config copied to clipboard', 'success');
+    } catch {
+      const editor = document.getElementById('raw-config-editor');
+      if (editor) editor.value = text;
+      showToast('APO Config placed in Raw Configuration', 'info');
+    }
+    return;
+  }
+
   const isWavelet = kind === 'wavelet';
   const text = isWavelet ? buildWaveletExportText() : buildSquigPeqExportText();
   if (!text) return;
 
   const defaultPath = isWavelet ? 'Wavelet-GraphicEQ.txt' : 'Squig-PEQ-Filters.txt';
+  const label = isWavelet ? 'Wavelet' : 'Squig PEQ';
   if (window.apoAPI?.saveFile) {
     const result = await window.apoAPI.saveFile(text, {
       title: isWavelet ? 'Export Wavelet GraphicEQ' : 'Export Squig PEQ',
       defaultPath,
-      filters: [
-        { name: 'Text', extensions: ['txt'] },
-        { name: 'All Files', extensions: ['*'] }
-      ]
+      filters: [{ name: 'Text', extensions: ['txt'] }, { name: 'All Files', extensions: ['*'] }]
     });
-    if (result?.success) {
-      showToast(`${isWavelet ? 'Wavelet' : 'Squig PEQ'} export saved`, 'success');
-      return;
-    }
+    if (result?.success) { showToast(`${label} export saved`, 'success'); return; }
     if (result?.canceled) return;
     showToast(`Export failed: ${result?.error || 'unknown error'}`, 'error');
     return;
@@ -1765,7 +1830,7 @@ async function exportAdvancedEQ(kind) {
 
   try {
     await navigator.clipboard.writeText(text);
-    showToast(`${isWavelet ? 'Wavelet' : 'Squig PEQ'} export copied`, 'success');
+    showToast(`${label} export copied`, 'success');
   } catch {
     const editor = document.getElementById('raw-config-editor');
     if (editor) editor.value = text;
@@ -3110,25 +3175,44 @@ function initAdvancedPanel() {
     });
   });
 
-  // Presets
+  // Presets — shared localStorage store, APO file as optional bonus
   document.getElementById('btn-save-new-preset').addEventListener('click', async () => {
-    const name = document.getElementById('preset-name-input').value.trim();
+    const nameInput = document.getElementById('preset-name-input');
+    const name = nameInput?.value.trim();
     if (!name) return;
-    if (window.apoAPI) {
-      await window.apoAPI.savePreset(name, serializeConfig(appState.config));
+    const presets = getQuickPresets();
+    const next = { name, updatedAt: new Date().toISOString(), config: snapshotCurrentConfig() };
+    const idx = presets.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+    if (idx >= 0) presets[idx] = next; else presets.push(next);
+    setQuickPresets(presets);
+    if (window.apoAPI) await window.apoAPI.savePreset(name, serializeConfig(appState.config)).catch(() => {});
+    if (nameInput) nameInput.value = '';
+    loadPresetsList();
+    renderQuickPresetSelect();
+    showToast(`Preset saved: ${name}`, 'success');
+  });
+  loadPresetsList();
+
+  // Single delegated listener for preset Load/Del — avoids inline onclick (CSP-safe)
+  document.getElementById('preset-list')?.addEventListener('click', (e) => {
+    const loadBtn = e.target.closest('.preset-load-btn');
+    const delBtn = e.target.closest('.preset-del-btn');
+    if (loadBtn) loadQuickPreset(loadBtn.dataset.presetName);
+    if (delBtn) {
+      setQuickPresets(getQuickPresets().filter(p => p.name !== delBtn.dataset.presetName));
       loadPresetsList();
-      document.getElementById('preset-name-input').value = '';
-      showToast('Preset saved', 'success');
-    } else {
-      showToast('Presets require APO connection', 'warning');
+      renderQuickPresetSelect();
     }
   });
-  if (window.apoAPI) loadPresetsList();
 
   document.getElementById('btn-import-squig-eq')?.addEventListener('click', () => importAdvancedEQ('squig'));
   document.getElementById('btn-import-wavelet-eq')?.addEventListener('click', () => importAdvancedEQ('wavelet'));
+  document.getElementById('btn-import-jamesdsp-eq')?.addEventListener('click', () => importAdvancedEQ('squig'));
+  document.getElementById('btn-export-apo-eq')?.addEventListener('click', () => exportAdvancedEQ('apo'));
   document.getElementById('btn-export-squig-eq')?.addEventListener('click', () => exportAdvancedEQ('squig'));
   document.getElementById('btn-export-wavelet-eq')?.addEventListener('click', () => exportAdvancedEQ('wavelet'));
+  document.getElementById('btn-export-jamesdsp-eq')?.addEventListener('click', () => exportAdvancedEQ('squig'));
+  document.getElementById('btn-export-poweramp-eq')?.addEventListener('click', () => exportAdvancedEQ('poweramp'));
 
   // Include
   document.getElementById('btn-add-include')?.addEventListener('click', async () => {
@@ -3146,32 +3230,24 @@ function initAdvancedPanel() {
   });
 }
 
-async function loadPresetsList() {
+function loadPresetsList() {
   const container = document.getElementById('preset-list');
-  if (!window.apoAPI) { container.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">Requires APO</div>'; return; }
-  const presets = await window.apoAPI.getPresets();
-  if (presets.length === 0) { container.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">No presets saved</div>'; return; }
+  if (!container) return;
+  const presets = getQuickPresets().sort((a, b) => a.name.localeCompare(b.name));
+  if (presets.length === 0) {
+    container.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">No presets saved yet</div>';
+    return;
+  }
   container.innerHTML = presets.map(p => `
     <div class="preset-row">
-      <span>${escapeHtml(p.name.replace('.txt',''))}</span>
+      <span>${escapeHtml(p.name)}</span>
       <div style="display:flex;gap:4px;">
-        <button class="btn-ghost" style="padding:3px 8px;font-size:11px;" onclick="window.applyPreset('${p.name}')">Load</button>
-        <button class="btn-ghost" style="padding:3px 8px;font-size:11px;" onclick="window.deletePreset('${p.name}')">Del</button>
+        <button class="btn-ghost preset-load-btn" style="padding:3px 8px;font-size:11px;" data-preset-name="${escapeHtml(p.name)}">Load</button>
+        <button class="btn-ghost preset-del-btn" style="padding:3px 8px;font-size:11px;" data-preset-name="${escapeHtml(p.name)}">Del</button>
       </div>
     </div>
   `).join('');
 }
-
-window.applyPreset = async (filename) => {
-  if (!window.apoAPI) return;
-  const content = await window.apoAPI.readPreset(filename);
-  if (content) { loadConfigFromText(content); showToast('Preset loaded', 'success'); }
-};
-window.deletePreset = async (filename) => {
-  if (!window.apoAPI) return;
-  await window.apoAPI.deletePreset(filename);
-  loadPresetsList();
-};
 
 function renderIncludes() {
   const container = document.getElementById('include-list');
@@ -3380,16 +3456,25 @@ async function importConfig() {
   }
 }
 
-async function exportConfig() {
-  const text = serializeConfig(appState.config);
-  try {
-    await navigator.clipboard.writeText(text);
-    showToast('Config copied to clipboard', 'success');
-  } catch {
-    document.getElementById('raw-config-editor').value = text;
-    document.querySelector('[data-tab="advanced"]').click();
-    showToast('Config in Raw Editor', 'info');
+
+function buildPowerampXML() {
+  const filters = (parametricEQ?.getFilters?.() || appState.config.filters || [])
+    .filter(f => f && f.enabled !== false && !f.isEffect);
+  if (!filters.length) {
+    showToast('No parametric filters to export', 'warning');
+    return '';
   }
+  const typeMap = {
+    PK: 'peaking', PEQ: 'peaking', Modal: 'peaking',
+    LS: 'lowShelf', LSC: 'lowShelf', 'LS 6dB': 'lowShelf', 'LS 12dB': 'lowShelf',
+    HS: 'highShelf', HSC: 'highShelf', 'HS 6dB': 'highShelf', 'HS 12dB': 'highShelf',
+    LP: 'lowPass', LPQ: 'lowPass', HP: 'highPass', HPQ: 'highPass',
+    NO: 'notch', AP: 'allPass', BP: 'bandPass',
+  };
+  const bands = filters.map(f =>
+    `  <band freq="${Number(f.frequency||0).toFixed(1)}" gain="${Number(f.gain||0).toFixed(1)}" q="${Number(f.q||0.707).toFixed(3)}" type="${typeMap[f.type] || 'peaking'}"/>`
+  ).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<poweramp_eq version="5" enabled="true" name="Custom EQ">\n${bands}\n</poweramp_eq>\n`;
 }
 
 async function selectFile(options) {
@@ -3477,6 +3562,29 @@ function markDirty() {
     }
     updateStatus('Unsaved changes');
   }
+  scheduleAutoSnapshot();
+}
+
+function scheduleAutoSnapshot() {
+  if (autoSnapshotTimer) clearTimeout(autoSnapshotTimer);
+  autoSnapshotTimer = setTimeout(() => {
+    autoSnapshotTimer = null;
+    saveAutoSnapshot(currentEQMode);
+  }, AUTO_SNAPSHOT_DELAY_MS);
+}
+
+function saveAutoSnapshot(mode) {
+  const store = getEQSnapshotStore();
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const snapshot = createEQSnapshot(mode, `🔄 Auto ${time}`);
+  const existing = store[mode] || [];
+  // Keep manual snapshots; cap auto-snapshots at AUTO_SNAPSHOT_MAX
+  const manual = existing.filter(s => !s.name?.startsWith('🔄 Auto'));
+  const autos  = existing.filter(s =>  s.name?.startsWith('🔄 Auto'));
+  autos.unshift(snapshot);
+  store[mode] = [...manual, ...autos.slice(0, AUTO_SNAPSHOT_MAX)];
+  setEQSnapshotStore(store);
+  renderEQSnapshotControls(mode);
 }
 
 function updateRawConfigEditor() {
@@ -4082,25 +4190,29 @@ function initTargetPicker() {
 // TARGET CUSTOMIZER
 // ═══════════════════════════════════════════════════════════
 function initTargetCustomizer() {
-  const tiltSlider   = document.getElementById('tc-tilt');
-  const bassSlider   = document.getElementById('tc-bass');
-  const trebleSlider = document.getElementById('tc-treble');
-  const tiltVal      = document.getElementById('tc-tilt-val');
-  const bassVal      = document.getElementById('tc-bass-val');
-  const trebleVal    = document.getElementById('tc-treble-val');
-  const presetSel    = document.getElementById('tc-preset-select');
-  const resetBtn     = document.getElementById('tc-reset');
+  const tiltSlider    = document.getElementById('tc-tilt');
+  const bassSlider    = document.getElementById('tc-bass');
+  const trebleSlider  = document.getElementById('tc-treble');
+  const earGainSlider = document.getElementById('tc-ear-gain');
+  const tiltVal       = document.getElementById('tc-tilt-val');
+  const bassVal       = document.getElementById('tc-bass-val');
+  const trebleVal     = document.getElementById('tc-treble-val');
+  const earGainVal    = document.getElementById('tc-ear-gain-val');
+  const presetSel     = document.getElementById('tc-preset-select');
+  const resetBtn      = document.getElementById('tc-reset');
 
   if (!tiltSlider) return;
 
   const applyTC = () => {
-    tcState.tilt   = parseFloat(tiltSlider.value);
-    tcState.bass   = parseFloat(bassSlider.value);
-    tcState.treble = parseFloat(trebleSlider.value);
+    tcState.tilt    = parseFloat(tiltSlider.value);
+    tcState.bass    = parseFloat(bassSlider.value);
+    tcState.treble  = parseFloat(trebleSlider.value);
+    tcState.earGain = earGainSlider ? parseFloat(earGainSlider.value) : 0;
 
     tiltVal.textContent   = `${tcState.tilt >= 0 ? '+' : ''}${tcState.tilt.toFixed(1)} dB/oct`;
     bassVal.textContent   = `${tcState.bass >= 0 ? '+' : ''}${tcState.bass.toFixed(1)} dB`;
     trebleVal.textContent = `${tcState.treble >= 0 ? '+' : ''}${tcState.treble.toFixed(1)} dB`;
+    if (earGainVal) earGainVal.textContent = `${tcState.earGain >= 0 ? '+' : ''}${tcState.earGain.toFixed(1)} dB`;
 
     rebuildCustomTarget();
   };
@@ -4108,15 +4220,16 @@ function initTargetCustomizer() {
   tiltSlider.addEventListener('input', applyTC);
   bassSlider.addEventListener('input', applyTC);
   trebleSlider.addEventListener('input', applyTC);
+  earGainSlider?.addEventListener('input', applyTC);
 
   presetSel.addEventListener('change', (e) => {
     const p = e.target.value;
     if (!p) return;
     const presets = {
-      neutral: { tilt: 0,    bass: 0,  treble: 0 },
-      harman:  { tilt: 0,    bass: 6,  treble: -2 },
-      warm:    { tilt: -0.5, bass: 3,  treble: -3 },
-      bright:  { tilt: 0.5,  bass: -2, treble: 3 },
+      neutral: { tilt: 0,    bass: 0,  treble: 0,  earGain: 0 },
+      harman:  { tilt: 0,    bass: 6,  treble: -2, earGain: 0 },
+      warm:    { tilt: -0.5, bass: 3,  treble: -3, earGain: 0 },
+      bright:  { tilt: 0.5,  bass: -2, treble: 3,  earGain: 0 },
     };
     const vals = presets[p];
     if (!vals) return;
@@ -4124,6 +4237,7 @@ function initTargetCustomizer() {
     tiltSlider.value   = vals.tilt;
     bassSlider.value   = vals.bass;
     trebleSlider.value = vals.treble;
+    if (earGainSlider) earGainSlider.value = vals.earGain;
     applyTC();
     e.target.value = '';
   });
@@ -4133,6 +4247,7 @@ function initTargetCustomizer() {
     tiltSlider.value   = 0;
     bassSlider.value   = 0;
     trebleSlider.value = 0;
+    if (earGainSlider) earGainSlider.value = 0;
     applyTC();
   });
 }

@@ -94,7 +94,7 @@
       <button class="icon-btn" id="btn-import" title="Import config">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/></svg>
       </button>
-      <button class="icon-btn" id="btn-export" title="Export config">
+      <button class="icon-btn" id="btn-export" title="Copy APO config to clipboard">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" fill="currentColor"/></svg>
       </button>
       <label class="save-mode-toggle" title="Automatically save every change to Equalizer APO">
@@ -139,16 +139,21 @@
         <option value="target">Comp target</option>
         <option value="measurement">Comp meas</option>
       </select>
-      <select class="graph-ctrl graph-ctrl-select graph-curve-select" id="graph-offset-curve" title="Curve to hide or offset">
-        <option value="measurement">Meas</option>
-        <option value="target">Target</option>
-        <option value="corrected">Corrected</option>
-        <option value="eq">EQ curve</option>
+      <select id="graph-offset-curve" style="display:none">
+        <option value="measurement">measurement</option>
+        <option value="target">target</option>
+        <option value="corrected">corrected</option>
+        <option value="eq">eq</option>
       </select>
-      <button class="graph-ctrl graph-ctrl-wide" id="graph-curve-hide" title="Hide/show selected curve">Hide</button>
+      <button class="graph-ctrl graph-ctrl-wide gcv-btn active" id="gcv-measurement" data-curve="measurement" title="Show/hide Measurement — also selects it for offset">FR</button>
+      <button class="graph-ctrl graph-ctrl-wide gcv-btn active" id="gcv-target" data-curve="target" title="Show/hide Target — also selects it for offset">Tgt</button>
+      <button class="graph-ctrl graph-ctrl-wide gcv-btn active" id="gcv-corrected" data-curve="corrected" title="Show/hide Corrected — also selects it for offset">Corr</button>
+      <button class="graph-ctrl graph-ctrl-wide gcv-btn active" id="gcv-eq" data-curve="eq" title="Show/hide EQ curve — also selects it for offset">EQ</button>
       <button class="graph-ctrl graph-ctrl-wide" id="graph-offset-down" title="Move selected curve down 1 dB">-1</button>
       <button class="graph-ctrl graph-ctrl-wide" id="graph-offset-up" title="Move selected curve up 1 dB">+1</button>
       <button class="graph-ctrl" id="graph-offset-reset" title="Reset selected curve offset">0</button>
+      <div class="graph-divider"></div>
+      <button class="graph-ctrl graph-ctrl-wide" id="graph-load-meas" title="Upload your own FR measurement file (.txt, .csv, .frd) — loads into graph and FR Tracer">Load FR</button>
       <div class="graph-divider"></div>
       <button class="graph-ctrl" id="graph-screenshot" title="Save graph as PNG">📷</button>
       <div class="graph-divider"></div>
@@ -251,6 +256,7 @@
           <span class="fh fh-freq">Frequency</span>
           <span class="fh fh-gain">Gain</span>
           <span class="fh fh-q">Q</span>
+          <span class="fh fh-channel">Ch</span>
           <span class="fh fh-del"></span>
         </div>
         <div id="filter-list" class="filter-list"></div>
@@ -337,7 +343,7 @@
         </div>
         <div class="tp-row tp-row-custom" id="target-customizer-bar" style="display:none;">
           <label class="toggle-label tc-cross-source" title="Allow any reviewer target with any measurement, trace, headphone, or rig. Turn off to restrict targets to the selected reviewer source.">
-            <input type="checkbox" id="target-allow-cross-source" checked>
+            <input type="checkbox" id="target-allow-cross-source">
             <span class="toggle-switch"></span>
             Free reviewer targets
           </label>
@@ -355,6 +361,11 @@
             <span class="tc-label">Treble</span>
             <input type="range" id="tc-treble" class="mini-slider tc-range" min="-20" max="20" step="0.5" value="0">
             <span class="tc-val" id="tc-treble-val">+0.0 dB</span>
+          </div>
+          <div class="tc-slider-row">
+            <span class="tc-label" title="Ear canal gain — boosts/cuts the 3.5 kHz ear resonance peak in the target">Ear</span>
+            <input type="range" id="tc-ear-gain" class="mini-slider tc-range" min="-10" max="10" step="0.5" value="0">
+            <span class="tc-val" id="tc-ear-gain-val">+0.0 dB</span>
           </div>
           <select id="tc-preset-select" class="select-sm" title="Apply a target preset">
             <option value="">Presets…</option>
@@ -749,17 +760,21 @@
           </div>
           <div id="preset-list" class="preset-list"></div>
           <h3 class="section-title" style="margin-top:20px;">EQ Import / Export</h3>
-          <p class="col-desc" style="margin-bottom:10px;">Move filters between this app, Squig PEQ exports, and Wavelet GraphicEQ files.</p>
+          <p class="col-desc" style="margin-bottom:10px;">Move filters between this app, Squig PEQ, Wavelet GraphicEQ, JamesDSP, and Poweramp.</p>
           <div class="eq-transfer-panel">
             <div class="eq-transfer-row">
               <span class="eq-transfer-label">Import</span>
               <button class="btn-ghost" id="btn-import-squig-eq">Squig PEQ</button>
               <button class="btn-ghost" id="btn-import-wavelet-eq">Wavelet</button>
+              <button class="btn-ghost" id="btn-import-jamesdsp-eq">JamesDSP</button>
             </div>
             <div class="eq-transfer-row">
               <span class="eq-transfer-label">Export</span>
+              <button class="btn-ghost" id="btn-export-apo-eq">APO Config</button>
               <button class="btn-ghost" id="btn-export-squig-eq">Squig PEQ</button>
               <button class="btn-ghost" id="btn-export-wavelet-eq">Wavelet</button>
+              <button class="btn-ghost" id="btn-export-jamesdsp-eq">JamesDSP</button>
+              <button class="btn-ghost" id="btn-export-poweramp-eq">Poweramp</button>
             </div>
           </div>
         </div>

@@ -42,6 +42,7 @@ export function parseConfig(text) {
   };
 
   let filterIndex = 0;
+  let currentChannel = 'all';
   const filterColors = generateFilterColors(20);
 
   for (let i = 0; i < lines.length; i++) {
@@ -83,6 +84,7 @@ export function parseConfig(text) {
     if (filterMatch) {
       const filter = parseFilter(params, filterIndex, filterColors[filterIndex % filterColors.length]);
       if (filter) {
+        filter.channel = currentChannel;
         config.filters.push(filter);
         filterIndex++;
       }
@@ -100,6 +102,7 @@ export function parseConfig(text) {
 
       case 'channel':
         config.channels = params;
+        currentChannel = ['L','R'].includes(params.trim()) ? params.trim() : 'all';
         break;
 
       case 'stage':

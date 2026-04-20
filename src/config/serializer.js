@@ -27,8 +27,9 @@ export function serializeConfig(config) {
     lines.push('');
   }
 
-  // Channel
-  if (config.channels && config.channels !== 'all') {
+  // Channel — only emit top-level directive when no per-filter channel groups are needed
+  const hasPerFilterChannels = (config.filters || []).some(f => f.channel && f.channel !== 'all');
+  if (!hasPerFilterChannels && config.channels && config.channels !== 'all') {
     lines.push(`Channel: ${config.channels}`);
     lines.push('');
   }
@@ -70,13 +71,39 @@ export function serializeConfig(config) {
     lines.push('');
   }
 
-  // Parametric EQ Filters
+  // Parametric EQ Filters (grouped by channel)
   if (config.filters && config.filters.length > 0) {
-    lines.push('# Parametric EQ Filters');
-    for (let i = 0; i < config.filters.length; i++) {
-      lines.push(serializeFilter(config.filters[i], i + 1));
+    const byChannel = { all: [], L: [], R: [] };
+    for (const f of config.filters) {
+      const ch = f.channel && f.channel !== 'all' ? f.channel : 'all';
+      (byChannel[ch] = byChannel[ch] || []).push(f);
     }
-    lines.push('');
+    const hasMultiChannel = byChannel.L.length > 0 || byChannel.R.length > 0;
+
+    if (hasMultiChannel) {
+      if (byChannel.all.length > 0) {
+        lines.push('# Filters — all channels');
+        lines.push('Channel: all');
+        byChannel.all.forEach((f, i) => lines.push(serializeFilter(f, i + 1)));
+        lines.push('');
+      }
+      if (byChannel.L.length > 0) {
+        lines.push('# Filters — left channel');
+        lines.push('Channel: L');
+        byChannel.L.forEach((f, i) => lines.push(serializeFilter(f, i + 1)));
+        lines.push('');
+      }
+      if (byChannel.R.length > 0) {
+        lines.push('# Filters — right channel');
+        lines.push('Channel: R');
+        byChannel.R.forEach((f, i) => lines.push(serializeFilter(f, i + 1)));
+        lines.push('');
+      }
+    } else {
+      lines.push('# Parametric EQ Filters');
+      config.filters.forEach((f, i) => lines.push(serializeFilter(f, i + 1)));
+      lines.push('');
+    }
   }
 
   // Graphic EQ

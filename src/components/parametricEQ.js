@@ -71,7 +71,7 @@ export class ParametricEQ {
   }
 
   setFilters(filters) {
-    this.filters = filters;
+    this.filters = filters.map(f => ({ channel: 'all', ...f }));
     this._reindexFilters();
     this._render();
   }
@@ -89,6 +89,7 @@ export class ParametricEQ {
       frequency: params.frequency || 1000,
       gain: params.gain !== undefined ? params.gain : 0,
       q: params.q || 1.0,
+      channel: params.channel || 'all',
       bw: null,
       iirOrder: null,
       iirCoefficients: null,
@@ -158,6 +159,7 @@ export class ParametricEQ {
       frequency: p.frequency || 1000,
       gain: p.gain !== undefined ? p.gain : 0,
       q: p.q || 1.0,
+      channel: 'all',
       bw: null,
       iirOrder: null,
       iirCoefficients: null,
@@ -245,6 +247,13 @@ export class ParametricEQ {
             <span class="unit">Q</span>
           </div>
         </span>
+        <span class="filter-col filter-col-channel">
+          <select class="select-styled select-sm filter-channel-select" title="Channel: all, Left, or Right">
+            <option value="all" ${(filter.channel || 'all') === 'all' ? 'selected' : ''}>All</option>
+            <option value="L" ${filter.channel === 'L' ? 'selected' : ''}>L</option>
+            <option value="R" ${filter.channel === 'R' ? 'selected' : ''}>R</option>
+          </select>
+        </span>
         <span class="filter-col filter-col-actions">
           <button class="filter-action" data-action="duplicate" title="Duplicate filter">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M7 7V5a2 2 0 012-2h9a2 2 0 012 2v9a2 2 0 01-2 2h-2v-2h2V5H9v2H7zm-3 4a2 2 0 012-2h9a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2v-8zm2 0v8h9v-8H6z" fill="currentColor"/></svg>
@@ -302,6 +311,12 @@ export class ParametricEQ {
       const qInput = row.querySelector('.filter-q');
       qInput.addEventListener('input', (e) => {
         filter.q = parseFloat(e.target.value) || 0;
+        this._notify();
+      });
+
+      const channelSelect = row.querySelector('.filter-channel-select');
+      channelSelect.addEventListener('change', (e) => {
+        filter.channel = e.target.value;
         this._notify();
       });
 

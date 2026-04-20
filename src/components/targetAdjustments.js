@@ -4,11 +4,13 @@ export const TARGET_ADJUSTMENT_DEFAULTS = Object.freeze({
   tilt: 0,
   bass: 0,
   treble: 0,
+  earGain: 0,
 });
 
 export const TARGET_ADJUSTMENT_FILTERS = Object.freeze({
   bass: { type: 'LSQ', freq: 105, q: 0.707 },
   treble: { type: 'HSQ', freq: 2500, q: 0.42 },
+  earGain: { type: 'PK', freq: 3500, q: 2.0 },
 });
 
 function cleanNumber(value, fallback = 0) {
@@ -21,6 +23,7 @@ export function normalizeTargetAdjustments(adjustments = {}) {
     tilt: cleanNumber(adjustments.tilt),
     bass: cleanNumber(adjustments.bass),
     treble: cleanNumber(adjustments.treble),
+    earGain: cleanNumber(adjustments.earGain),
   };
 }
 
@@ -28,7 +31,8 @@ export function isTargetAdjusted(adjustments = {}) {
   const next = normalizeTargetAdjustments(adjustments);
   return Math.abs(next.tilt) > 0.001 ||
     Math.abs(next.bass) > 0.001 ||
-    Math.abs(next.treble) > 0.001;
+    Math.abs(next.treble) > 0.001 ||
+    Math.abs(next.earGain) > 0.001;
 }
 
 export function formatTargetAdjustmentLabel(adjustments = {}) {
@@ -42,6 +46,9 @@ export function formatTargetAdjustmentLabel(adjustments = {}) {
   }
   if (Math.abs(next.treble) > 0.001) {
     parts.push(`Treble: ${next.treble >= 0 ? '+' : ''}${next.treble.toFixed(1)}dB`);
+  }
+  if (Math.abs(next.earGain) > 0.001) {
+    parts.push(`Ear: ${next.earGain >= 0 ? '+' : ''}${next.earGain.toFixed(1)}dB`);
   }
   return parts.length ? parts.join(', ') : null;
 }
@@ -65,6 +72,9 @@ export function applyTargetAdjustments(data, adjustments = {}) {
   }
   if (Math.abs(next.treble) > 0.001) {
     filters.push({ ...TARGET_ADJUSTMENT_FILTERS.treble, gain: next.treble });
+  }
+  if (Math.abs(next.earGain) > 0.001) {
+    filters.push({ ...TARGET_ADJUSTMENT_FILTERS.earGain, gain: next.earGain });
   }
   if (filters.length) {
     points = new AutoEQEngine().applyFilters(points, filters);

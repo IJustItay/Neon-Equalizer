@@ -433,6 +433,7 @@ input, select, textarea, button { font-family: inherit; font-size: inherit; colo
 .icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 .icon-btn.danger:hover { background: rgba(239,68,68,0.15); color: var(--red); }
 
+
 /* Selects */
 .select-sm {
   height: 28px;
@@ -617,6 +618,9 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
   white-space: nowrap;
 }
 .legend-line { width: 18px; height: 2px; border-radius: 1px; }
+.legend-color-label { display:flex; align-items:center; cursor:pointer; opacity:0.5; transition:opacity var(--t-fast); }
+.legend-color-label:hover { opacity:1; }
+.legend-color-input { width:10px; height:10px; border:none; padding:0; background:none; cursor:pointer; border-radius:50%; }
 
 /* ── Tab Strip ───────────────────────────────────────────────── */
 .tab-strip {
@@ -836,6 +840,7 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
 .fh-freq { flex: 1; min-width: 130px; }
 .fh-gain { flex: 1; min-width: 130px; }
 .fh-q { flex: 1; min-width: 130px; }
+.fh-channel { width: 58px; flex-shrink: 0; }
 .fh-del { width: 32px; flex-shrink: 0; }
 
 .filter-list { display: flex; flex-direction: column; gap: 1px; overflow-y: auto; flex: 1; padding: 4px; }
@@ -858,6 +863,7 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
 .filter-col-freq { flex: 1; min-width: 120px; }
 .filter-col-gain { flex: 1; min-width: 120px; }
 .filter-col-q { flex: 1; min-width: 120px; }
+.filter-col-channel { width: 58px; flex-shrink: 0; }
 .filter-col-actions { width: 58px; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
 .filter-col-toggle { width: 48px; flex-shrink: 0; display: flex; align-items: center; gap: 5px; }
 
@@ -1466,10 +1472,13 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
   background: var(--bg3);
 }
 .eq-transfer-row {
-  display: grid;
-  grid-template-columns: 54px minmax(0, 1fr) minmax(0, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+}
+.eq-transfer-row .eq-transfer-label {
+  flex: 0 0 54px;
 }
 .eq-transfer-label {
   font-size: 10px;
