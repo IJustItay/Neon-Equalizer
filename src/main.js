@@ -59,47 +59,6 @@ const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const EQ_SNAPSHOT_KEY = 'neon-equalizer:eq-snapshots:v1';
 const EQ_AB_KEY = 'neon-equalizer:eq-ab:v1';
 const EQ_SNAPSHOT_LIMIT = 24;
-const SHORTCUTS_KEY = 'neon-equalizer:shortcuts:v1';
-
-const DEFAULT_SHORTCUTS = {
-  save:  { label: 'Save to APO',  keys: 'Ctrl+S' },
-  undo:  { label: 'Undo',         keys: 'Ctrl+Z' },
-  redo:  { label: 'Redo',         keys: 'Ctrl+Y' },
-  addFilter: { label: 'Add Filter', keys: '' },
-  toggleHelp: { label: 'Toggle Help Mode', keys: '' },
-};
-
-function getShortcuts() {
-  try {
-    const stored = localStorage.getItem(SHORTCUTS_KEY);
-    const saved = stored ? JSON.parse(stored) : {};
-    const result = {};
-    for (const [id, def] of Object.entries(DEFAULT_SHORTCUTS)) {
-      result[id] = { ...def, keys: id in saved ? saved[id] : def.keys };
-    }
-    return result;
-  } catch { return { ...DEFAULT_SHORTCUTS }; }
-}
-
-function setShortcuts(shortcuts) {
-  const toSave = {};
-  for (const [id, val] of Object.entries(shortcuts)) toSave[id] = val.keys;
-  try { localStorage.setItem(SHORTCUTS_KEY, JSON.stringify(toSave)); } catch {}
-}
-
-function shortcutMatches(e, keys) {
-  if (!keys) return false;
-  const parts = keys.split('+').map(s => s.trim().toLowerCase());
-  const needCtrl  = parts.includes('ctrl');
-  const needAlt   = parts.includes('alt');
-  const needShift = parts.includes('shift');
-  const keyPart   = parts.find(p => !['ctrl','alt','shift','meta'].includes(p)) || '';
-  if (needCtrl  !== (e.ctrlKey  || e.metaKey)) return false;
-  if (needAlt   !== e.altKey)   return false;
-  if (needShift !== e.shiftKey) return false;
-  return e.key.toLowerCase() === keyPart;
-}
-
 // ─── Target Customizer State ──────────────────────────────────
 let tcState = { ...TARGET_ADJUSTMENT_DEFAULTS };
 let tcBaseTargetData = null; // original target before customizer tweaks
@@ -908,17 +867,11 @@ function initTopBar() {
   document.getElementById('btn-undo').addEventListener('click', undo);
   document.getElementById('btn-redo').addEventListener('click', redo);
 
-  // Keyboard shortcuts — driven by user-configurable shortcuts
+  // Keyboard shortcuts
   window.addEventListener('keydown', (e) => {
-    if (e.target.matches('input, textarea, select')) return;
-    const sc = getShortcuts();
-    if (shortcutMatches(e, sc.save?.keys))        { e.preventDefault(); saveConfig(); }
-    else if (shortcutMatches(e, sc.undo?.keys))   { e.preventDefault(); undo(); }
-    else if (shortcutMatches(e, sc.redo?.keys))   { e.preventDefault(); redo(); }
-    else if (shortcutMatches(e, sc.addFilter?.keys)) { e.preventDefault(); document.getElementById('btn-add-filter')?.click(); }
-    else if (shortcutMatches(e, sc.toggleHelp?.keys)) { e.preventDefault(); document.getElementById('btn-help-mode')?.click(); }
-    // Redo fallback: Ctrl+Shift+Z always works
-    else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'Z') { e.preventDefault(); redo(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redo(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveConfig(); }
   });
 }
 
@@ -1235,95 +1188,6 @@ function initAboutPanel() {
   document.getElementById('btn-backup-data')?.addEventListener('click', () => backupUserData());
   document.getElementById('btn-restore-data')?.addEventListener('click', () => restoreUserData());
   document.getElementById('btn-open-backups')?.addEventListener('click', () => openBackupFolder());
-
-  renderShortcutsEditor();
-}
-
-function renderShortcutsEditor() {
-  const container = document.getElementById('shortcuts-editor');
-  if (!container) return;
-  const shortcuts = getShortcuts();
-  container.innerHTML = '';
-  const table = document.createElement('table');
-  table.className = 'shortcuts-table';
-  table.innerHTML = '<thead><tr><th>Action</th><th>Shortcut</th><th></th></tr></thead>';
-  const tbody = document.createElement('tbody');
-  for (const [id, sc] of Object.entries(shortcuts)) {
-    const tr = document.createElement('tr');
-    tr.dataset.scId = id;
-    const display = sc.keys || '<span class="sc-none">None</span>';
-    tr.innerHTML = `
-      <td class="sc-label">${escapeHtml(sc.label)}</td>
-      <td><div class="sc-key-field" data-sc-id="${id}" tabindex="0" title="Click then press a key combo to set this shortcut">${sc.keys ? `<kbd>${escapeHtml(sc.keys)}</kbd>` : '<span class="sc-none">None — click to set</span>'}</div></td>
-      <td><button class="sc-clear-btn btn-ghost" data-sc-id="${id}" title="Clear this shortcut">✕</button></td>
-    `;
-    tbody.appendChild(tr);
-  }
-  table.appendChild(tbody);
-  container.appendChild(table);
-
-  let recording = null;
-
-  container.addEventListener('click', (e) => {
-    const field = e.target.closest('.sc-key-field');
-    const clearBtn = e.target.closest('.sc-clear-btn');
-    if (field) {
-      if (recording) recording.classList.remove('recording');
-      recording = field;
-      field.classList.add('recording');
-      field.innerHTML = '<span class="sc-recording">Press any key combo…</span>';
-      field.focus();
-    }
-    if (clearBtn) {
-      const id = clearBtn.dataset.scId;
-      const sc = getShortcuts();
-      sc[id].keys = '';
-      setShortcuts(sc);
-      renderShortcutsEditor();
-      showToast(`Shortcut for "${sc[id]?.label || id}" cleared`, 'info');
-    }
-  });
-
-  container.addEventListener('keydown', (e) => {
-    if (!recording) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const id = recording.dataset.scId;
-    // Escape = cancel recording without saving
-    if (e.key === 'Escape') {
-      recording.classList.remove('recording');
-      recording = null;
-      renderShortcutsEditor();
-      return;
-    }
-    // Build key string
-    const parts = [];
-    if (e.ctrlKey || e.metaKey) parts.push('Ctrl');
-    if (e.altKey) parts.push('Alt');
-    if (e.shiftKey) parts.push('Shift');
-    const key = e.key;
-    if (!['Control','Alt','Shift','Meta'].includes(key)) parts.push(key.length === 1 ? key.toUpperCase() : key);
-    const keyStr = parts.join('+');
-    if (parts.length === 0 || (parts.length === 1 && !['Control','Alt','Shift','Meta'].includes(key))) {
-      // Single key without modifier — allowed but warn
-    }
-    const sc = getShortcuts();
-    // Check for conflicts
-    const conflict = Object.entries(sc).find(([cid, csc]) => cid !== id && csc.keys === keyStr);
-    if (conflict) {
-      showToast(`"${keyStr}" is already used by "${conflict[1].label}" — choose a different combo`, 'warning');
-      recording.classList.remove('recording');
-      recording = null;
-      renderShortcutsEditor();
-      return;
-    }
-    sc[id].keys = keyStr;
-    setShortcuts(sc);
-    recording.classList.remove('recording');
-    recording = null;
-    renderShortcutsEditor();
-    showToast(`Shortcut set: ${keyStr} → ${sc[id].label}`, 'success');
-  });
 }
 
 function initUpdateChecker() {
