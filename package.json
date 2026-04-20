@@ -1,0 +1,106 @@
+{
+  "name": "neon-equalizer",
+  "version": "2.0.13",
+  "description": "Professional Neon Equalizer GUI for Equalizer APO with AutoEQ and Squiglink integration",
+  "keywords": [
+    "equalizer-apo",
+    "equalizer",
+    "parametric-eq",
+    "graphic-eq",
+    "autoeq",
+    "squiglink",
+    "headphone-eq",
+    "audio-dsp",
+    "vst-plugins",
+    "loudness-correction",
+    "windows",
+    "electron",
+    "desktop-app",
+    "portable-app",
+    "iem-tuning",
+    "speaker-correction",
+    "audio-preview",
+    "eq-presets"
+  ],
+  "author": "Itay",
+  "homepage": "https://github.com/IJustItay/Neon-Equalizer#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IJustItay/Neon-Equalizer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/IJustItay/Neon-Equalizer/issues"
+  },
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "icons": "node scripts/generate-icons.mjs",
+    "build": "vite build",
+    "dist": "npm run icons && vite build && electron-builder --win",
+    "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.neonequalizer.app",
+    "productName": "Neon Equalizer",
+    "copyright": "Copyright © 2025",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "IJustItay",
+        "repo": "Neon-Equalizer",
+        "releaseType": "release"
+      }
+    ],
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "portable": {
+      "artifactName": "Neon-Equalizer-${version}-Portable.exe",
+      "requestExecutionLevel": "admin"
+    },
+    "nsis": {
+      "include": "build/installer.nsh",
+      "artifactName": "Neon-Equalizer-${version}-Setup.exe",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^26.8.1",
+    "sharp": "^0.34.5",
+    "vite": "^6.0.0",
+    "wait-on": "^8.0.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "electron-updater": "^6.8.3"
+  }
+}
