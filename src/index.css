@@ -622,6 +622,21 @@ input:checked + .toggle-switch::after { left: 15px; background: var(--cyan); box
 .legend-color-label:hover { opacity:1; }
 .legend-color-input { width:10px; height:10px; border:none; padding:0; background:none; cursor:pointer; border-radius:50%; }
 
+/* ── Shortcuts Editor ────────────────────────────────────────── */
+.shortcuts-table { width:100%; border-collapse:collapse; font-size:13px; }
+.shortcuts-table th { text-align:left; padding:4px 8px; color:var(--text-muted); font-weight:500; border-bottom:1px solid var(--bg-border); }
+.shortcuts-table td { padding:5px 8px; border-bottom:1px solid var(--bg-border); }
+.shortcuts-table tr:last-child td { border-bottom:none; }
+.sc-label { color:var(--text-secondary); }
+.sc-key-field { display:inline-flex; align-items:center; min-width:140px; padding:4px 10px; border-radius:6px; border:1px solid var(--bg-border); background:var(--bg2); cursor:pointer; transition:border-color var(--t-fast); user-select:none; }
+.sc-key-field:hover { border-color:var(--cyan); }
+.sc-key-field.recording { border-color:var(--cyan); background:color-mix(in srgb, var(--cyan) 12%, var(--bg2)); }
+.sc-key-field kbd { background:var(--bg3); border:1px solid var(--bg-border); border-radius:4px; padding:1px 6px; font-size:12px; font-family:monospace; }
+.sc-none { color:var(--text-muted); font-style:italic; font-size:12px; }
+.sc-recording { color:var(--cyan); font-style:italic; font-size:12px; }
+.sc-clear-btn { padding:2px 7px; font-size:12px; opacity:0.5; }
+.sc-clear-btn:hover { opacity:1; }
+
 /* ── Tab Strip ───────────────────────────────────────────────── */
 .tab-strip {
   height: var(--tabstrip-h);
