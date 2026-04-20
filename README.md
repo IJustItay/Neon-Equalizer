@@ -1,129 +1,183 @@
-<p align="center">
-  <img src="docs/images/logo.png" width="132" alt="Neon Equalizer logo">
-</p>
+<div align="center">
+  <img src="assets/icon.svg" width="96" alt="Neon Equalizer">
+  <h1>Neon Equalizer</h1>
+  <p>A modern Windows desktop GUI for <a href="https://sourceforge.net/projects/equalizerapo/">Equalizer APO</a> — parametric EQ, AutoEQ headphone targets, Squiglink measurements, VST plugins, GraphicEQ, and more.</p>
 
-<h1 align="center">Neon Equalizer</h1>
+  <p>
+    <a href="https://github.com/IJustItay/Neon-Equalizer/releases/latest">
+      <img alt="Latest release" src="https://img.shields.io/github/v/release/IJustItay/Neon-Equalizer?style=for-the-badge&label=Download&color=00d4ff&logo=windows">
+    </a>
+    <a href="https://github.com/IJustItay/Neon-Equalizer/releases">
+      <img alt="Total downloads" src="https://img.shields.io/github/downloads/IJustItay/Neon-Equalizer/total?style=for-the-badge&color=7c3aed&label=Downloads">
+    </a>
+    <a href="https://github.com/IJustItay/Neon-Equalizer/releases/latest">
+      <img alt="Version" src="https://img.shields.io/github/v/release/IJustItay/Neon-Equalizer?style=for-the-badge&color=10b981&label=Version">
+    </a>
+    <img alt="Windows 10+" src="https://img.shields.io/badge/Windows-10%2B-0078D6?style=for-the-badge&logo=windows&logoColor=white">
+  </p>
 
-<p align="center">
-  A modern Windows Equalizer APO GUI for parametric EQ, AutoEQ, Squiglink headphone targets, live audio preview, presets, and device PEQ workflows.
-</p>
+  <p>
+    <a href="#-quick-start">Quick Start</a> ·
+    <a href="#-download">Download</a> ·
+    <a href="#-features">Features</a> ·
+    <a href="#-screenshots">Screenshots</a> ·
+    <a href="#-build-from-source">Build</a>
+  </p>
+</div>
 
-<p align="center">
-  <a href="https://github.com/IJustItay/Neon-Equalizer/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/IJustItay/Neon-Equalizer?style=for-the-badge&label=release&color=00d4ff"></a>
-  <a href="https://github.com/IJustItay/Neon-Equalizer/releases"><img alt="GitHub downloads" src="https://img.shields.io/github/downloads/IJustItay/Neon-Equalizer/total?style=for-the-badge&color=7c3aed"></a>
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/IJustItay/Neon-Equalizer?style=for-the-badge&color=10b981"></a>
-  <img alt="Windows 10+" src="https://img.shields.io/badge/Windows-10%2B-00a8ff?style=for-the-badge&logo=windows">
-</p>
+---
 
-<p align="center">
-  <a href="#quick-start">Quick start</a> |
-  <a href="#downloads">Downloads</a> |
-  <a href="#features">Features</a> |
-  <a href="#build-from-source">Build from source</a> |
-  <a href="docs/USAGE.md">Usage guide</a>
-</p>
+## 📸 Screenshots
 
-![Neon Equalizer app screenshot](docs/images/app-screenshot.png)
+<table>
+  <tr>
+    <td><img src="docs/images/dark-equalizer.png" alt="Parametric EQ — dark theme" width="680"></td>
+    <td><img src="docs/images/light-equalizer.png" alt="Parametric EQ — light theme" width="680"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Parametric EQ · dark theme</sub></td>
+    <td align="center"><sub>Parametric EQ · light theme</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/dark-autoeq.png" alt="AutoEQ & Headphones" width="680"></td>
+    <td><img src="docs/images/dark-tools.png" alt="Tools panel" width="680"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>AutoEQ &amp; Headphone Targets</sub></td>
+    <td align="center"><sub>Tools — VST, Convolution, Loudness</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/dark-advanced.png" alt="Advanced panel" width="680"></td>
+    <td><img src="docs/images/dark-about.png" alt="About panel" width="680"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Advanced — Presets, Expressions, Raw Config</sub></td>
+    <td align="center"><sub>About — Updates, Shortcuts, Easy Guide</sub></td>
+  </tr>
+</table>
 
-## What Is Neon Equalizer?
+---
 
-Neon Equalizer is a desktop audio tuning app for Windows. It gives Equalizer APO users a cleaner interface for headphone EQ, speaker correction, parametric filters, VST plugin chains, loudness correction, AutoEQ-style workflows, Squiglink measurements, and quick A/B previewing before saving changes to APO.
+## ⚡ Quick Start
 
-Useful for headphone EQ, IEM tuning, speaker correction, gaming audio profiles, music presets, and anyone who wants a modern GUI for Equalizer APO config files.
+Neon Equalizer requires [**Equalizer APO**](https://sourceforge.net/projects/equalizerapo/) to be installed first.
 
-## Quick Start
+1. **Install Equalizer APO** and select your playback device during setup.
+2. **[Download Neon Equalizer](#-download)** — portable or installer.
+3. **Run `Neon Equalizer.exe`** — it auto-detects your APO config folder.
+4. Add filters, load a target, preview the result, then click **Save to APO**.
 
-Neon Equalizer is designed for Windows users who already use, or want to use, [Equalizer APO](https://sourceforge.net/projects/equalizerapo/).
+> The app requests administrator permission because Equalizer APO stores its config in `Program Files`.
 
-1. Install Equalizer APO and configure it for your playback device.
-2. Download or build the Neon Equalizer portable app.
-3. Run `Neon Equalizer.exe`.
-4. Let the app detect your Equalizer APO config folder, or choose it manually.
-5. Add filters, load an AutoEQ target, preview the result, then click **Save to APO**.
+---
 
-The packaged Windows build requests administrator permission because Equalizer APO normally stores its config under `Program Files`.
+## 📥 Download
 
-## Downloads
+| Build | Size | Notes |
+|-------|------|-------|
+| [**Portable .exe**](https://github.com/IJustItay/Neon-Equalizer/releases/latest) | ~120 MB | No install needed — just run |
+| [**Installer (Setup)**](https://github.com/IJustItay/Neon-Equalizer/releases/latest) | ~120 MB | Adds Start Menu shortcut, supports auto-update |
 
-Choose one Windows build:
+> **Auto-updates:** The installer build checks for new releases on startup and can download + install updates from within the app.
 
-- [Portable app](https://github.com/IJustItay/Neon-Equalizer/releases/latest/download/Neon-Equalizer-2.0.9-Portable.exe) - run without installing.
-- [Installer](https://github.com/IJustItay/Neon-Equalizer/releases/latest/download/Neon-Equalizer-2.0.9-Setup.exe) - guided installation with shortcuts.
+---
 
-Checksums are available in [SHA256SUMS.txt](https://github.com/IJustItay/Neon-Equalizer/releases/latest/download/SHA256SUMS.txt).
+## ✨ Features
 
-## Features
+### Equalizer
+- **Parametric EQ** with a real-time draggable frequency-response graph
+- **Graphic EQ** with custom band frequencies and vertical sliders
+- Per-filter enable/disable toggles, color coding, channel routing (L / R / all)
+- Up to 31 bands, undo/redo stack, auto-preamp with clipping protection
+- EQ snapshots — save A/B states and switch instantly; auto-snapshots every 8 s
 
-- Parametric EQ editor with draggable response graph.
-- Graphic EQ mode for broad shaping.
-- AutoEQ and headphone target workflows.
-- Squiglink integration for headphone measurements and targets.
-- EQ preview player with pink noise, white noise, and audio-file playback.
-- Config import/export for Equalizer APO text files.
-- VST plugin entries for Equalizer APO `.dll` effects.
-- Loudness Correction controls for APO reference level, offset, and attenuation.
-- Presets, undo/redo, clipping protection, target customization, and tray access.
-- Neon app icon, favicon, and Windows `.ico` assets generated from one SVG source.
+### AutoEQ & Headphone Targets
+- Search **AutoEQ** headphone measurements database
+- Browse **Squiglink** for measurements and targets with an embedded viewer
+- FR Tracer — upload or trace a headphone frequency-response image to extract data
+- Adjustable bass shelf, treble shelf, and overall tilt before running the optimizer
+- Auto-generate parametric filters matching any target curve
 
-## Keywords
+### Import / Export
+- Import from: APO Config, Squig PEQ text, Wavelet GraphicEQ, JamesDSP
+- Export to: APO Config, Squig PEQ, Wavelet, JamesDSP, Poweramp XML
 
-`equalizer apo`, `windows equalizer`, `parametric eq`, `headphone eq`, `vst plugins`, `loudness correction`, `autoeq`, `squiglink`, `audio dsp`, `electron app`, `portable windows app`, `iem tuning`, `speaker correction`, `eq presets`
+### Tools
+- **VST plugin** entries — chain `.dll` effects in Equalizer APO
+- **Convolution** — drop-in impulse response files (`.wav`, `.flac`, `.ir`)
+- **Loudness Correction** — reference level, offset, and attenuation controls
+- **Channel routing** — copy, delay, and mix channels
+- **Hardware PEQ transfer** — push filters to USB/network devices (HID PEQ)
+- **Live audio preview** — pink noise, white noise, or your own audio file with EQ on/off toggle
 
-## Build From Source
+### Interface
+- Dark and light themes, switchable in one click
+- **UI zoom** — scale the entire interface from 80 % to 125 % (or `Ctrl +` / `Ctrl −`)
+- Keyboard shortcuts: `Ctrl+S` save, `Ctrl+Z` / `Ctrl+Y` undo/redo
+- Persistent device profiles per audio output
+- Presets, Quick Load/Delete, raw APO config editor, expression editor
+- Auto-detect Equalizer APO config path
 
-Requirements:
+---
 
-- Windows 10 or newer
-- Node.js 20 or newer
-- Equalizer APO for real system-wide EQ output
+## 🖥️ System Requirements
 
-Install dependencies:
+| | Minimum |
+|---|---|
+| OS | Windows 10 64-bit |
+| Software | [Equalizer APO](https://sourceforge.net/projects/equalizerapo/) installed |
+| RAM | 150 MB free |
+| Display | 1280 × 720 |
+
+---
+
+## 🔨 Build From Source
+
+**Requirements:** Node.js 20+, Windows 10+
 
 ```powershell
+# Clone and install
+git clone https://github.com/IJustItay/Neon-Equalizer.git
+cd Neon-Equalizer
 npm install
-```
 
-Run the web UI and Electron app in development:
-
-```powershell
+# Run in development (Vite + Electron)
 npm run dev
-```
 
-Generate icon assets:
-
-```powershell
+# Generate icon assets
 npm run icons
-```
 
-Build the web bundle:
-
-```powershell
-npm run build
-```
-
-Create the portable Windows executable:
-
-```powershell
+# Build distributable exe
 npm run dist
 ```
 
-The outputs are written to `release/Neon-Equalizer-2.0.9-Portable.exe` and `release/Neon-Equalizer-2.0.9-Setup.exe`.
+Output files are written to `release/`.
 
-Upload `release/latest.yml` and `release/Neon-Equalizer-2.0.9-Setup.exe.blockmap` with the installer release assets so installed copies can download and install updates inside the app.
+---
 
-## User Data Backups
+## 💾 User Data & Backups
 
-Use About -> User Data -> Save Backup to export presets, device profiles, snapshots, A/B slots, local settings, and app storage to a `.zip` file. Use Restore Backup to merge a saved backup back into the app data folder; Neon Equalizer creates a safety backup first and restarts after restore.
+Go to **About → User Data → Save Backup** to export all presets, device profiles, EQ snapshots, A/B slots, and local settings to a `.zip` file. Use **Restore Backup** to bring them back — the app creates a safety backup first and restarts after restore.
 
-## Repository Design
+---
 
-- `assets/icon.svg` is the editable logo source.
-- `assets/icon.ico`, `assets/icon.png`, and `assets/icons/*` are generated app icon files.
-- `docs/images/logo.png` and `docs/images/app-screenshot.png` are used by the GitHub README.
-- `electron/` contains the desktop shell, tray integration, file dialogs, and Equalizer APO config access.
-- `src/` contains the app UI and equalizer logic.
-- `public/targets/` contains bundled target curves.
+## 📁 Repository Structure
 
-## License
+```
+assets/          App icons (generated from icon.svg)
+docs/images/     README screenshots
+electron/        Desktop shell, file dialogs, IPC, tray
+public/targets/  Bundled EQ target curves
+scripts/         Build helpers
+src/             App UI and EQ logic
+  components/    FrequencyGraph, ParametricEQ, TargetAdjustments
+  config/        APO config parser and serializer
+  main.js        App entry point
+```
 
-This project is licensed under the repository license.
+---
+
+## 📄 License
+
+This project is licensed under the repository license.  
+Built with [Electron](https://www.electronjs.org/), [Vite](https://vitejs.dev/), and vanilla JavaScript.
