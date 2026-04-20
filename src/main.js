@@ -41,6 +41,9 @@ let lastTraceCaptureContext = null;
 let selectedSquigSourceId = '';
 let selectedSquigSource = null;
 const AUTO_APPLY_DELAY_MS = 650;
+const AUTO_SNAPSHOT_DELAY_MS = 8000; // save auto-snapshot 8 s after last change
+const AUTO_SNAPSHOT_MAX = 5;         // keep at most this many auto-snapshots per mode
+let autoSnapshotTimer = null;
 let autoApplyTimer = null;
 let autoApplyInFlight = false;
 let autoApplyPending = false;
@@ -3559,6 +3562,29 @@ function markDirty() {
     }
     updateStatus('Unsaved changes');
   }
+  scheduleAutoSnapshot();
+}
+
+function scheduleAutoSnapshot() {
+  if (autoSnapshotTimer) clearTimeout(autoSnapshotTimer);
+  autoSnapshotTimer = setTimeout(() => {
+    autoSnapshotTimer = null;
+    saveAutoSnapshot(currentEQMode);
+  }, AUTO_SNAPSHOT_DELAY_MS);
+}
+
+function saveAutoSnapshot(mode) {
+  const store = getEQSnapshotStore();
+  const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const snapshot = createEQSnapshot(mode, `🔄 Auto ${time}`);
+  const existing = store[mode] || [];
+  // Keep manual snapshots; cap auto-snapshots at AUTO_SNAPSHOT_MAX
+  const manual = existing.filter(s => !s.name?.startsWith('🔄 Auto'));
+  const autos  = existing.filter(s =>  s.name?.startsWith('🔄 Auto'));
+  autos.unshift(snapshot);
+  store[mode] = [...manual, ...autos.slice(0, AUTO_SNAPSHOT_MAX)];
+  setEQSnapshotStore(store);
+  renderEQSnapshotControls(mode);
 }
 
 function updateRawConfigEditor() {

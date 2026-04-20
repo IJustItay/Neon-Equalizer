@@ -59,6 +59,7 @@ export class FrequencyGraph {
     };
     this.spectrumAnalyser = null;
     this._spectrumData = null;
+    this._smoothCache = new WeakMap(); // {data} -> {smoothing, result} — avoids re-smoothing on every frame
 
     // Dragging state
     this.dragFilter = null;
@@ -656,15 +657,18 @@ export class FrequencyGraph {
     const last = freqs.length - 1;
     if (freq >= freqs[last]) return spl[last] || 0;
 
-    for (let i = 0; i < last; i++) {
-      const f0 = freqs[i];
-      const f1 = freqs[i + 1];
-      if (freq < f0 || freq > f1) continue;
-      if (f1 === f0) return spl[i] || 0;
-      const ratio = Math.log(freq / f0) / Math.log(f1 / f0);
-      return spl[i] + (spl[i + 1] - spl[i]) * Math.max(0, Math.min(1, ratio));
+    // Binary search — O(log n) instead of O(n) linear scan.
+    // Critical for Comp Target: called for every point of every curve each frame.
+    let lo = 0, hi = last - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (freqs[mid + 1] < freq) lo = mid + 1;
+      else hi = mid;
     }
-    return spl[0] || 0;
+    const f0 = freqs[lo], f1 = freqs[lo + 1];
+    if (f1 === f0) return spl[lo] || 0;
+    const ratio = Math.log(freq / f0) / Math.log(f1 / f0);
+    return spl[lo] + (spl[lo + 1] - spl[lo]) * Math.max(0, Math.min(1, ratio));
   }
 
   /** Reapply normalization to already-loaded measurement + target curves. */
@@ -806,6 +810,9 @@ export class FrequencyGraph {
     const fractions = { '1/48': 1/48, '1/24': 1/24, '1/12': 1/12, '1/6': 1/6, '1/3': 1/3 };
     const fr = fractions[this.smoothing];
     if (!fr) return data;
+    // Return cached result when data object and smoothing value haven't changed
+    const cached = this._smoothCache.get(data);
+    if (cached && cached.smoothing === this.smoothing) return cached.result;
 
     // Build octave bands
     const bands = [];
@@ -829,7 +836,9 @@ export class FrequencyGraph {
         outSpl.push(values.reduce((a, b) => a + b, 0) / values.length);
       }
     }
-    return { freq: outFreq, spl: outSpl };
+    const result = { freq: outFreq, spl: outSpl };
+    this._smoothCache.set(data, { smoothing: this.smoothing, result });
+    return result;
   }
 
   /**
