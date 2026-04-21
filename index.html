@@ -169,6 +169,15 @@
     <div class="graph-legend" id="graph-legend"></div>
   </div>
 
+  <!-- ══ Graph Resize Handle ══════════════════════════════════ -->
+  <div class="graph-resize-handle" id="graph-resize-handle" title="Drag to resize graph"></div>
+
+  <!-- ══ Panel Collapse Bar ═══════════════════════════════════ -->
+  <div class="panel-collapse-bar" id="panel-collapse-bar" title="Show/hide panels (more graph space)">
+    <span class="panel-collapse-chevron">▲</span>
+    <span class="panel-collapse-label">Panels</span>
+  </div>
+
   <!-- ══ Main Tab Navigation ══════════════════════════════════ -->
   <div class="tab-strip">
     <button class="tab active" data-tab="eq" id="tab-eq">
@@ -178,6 +187,10 @@
     <button class="tab" data-tab="autoeq" id="tab-autoeq">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="currentColor"/></svg>
       AutoEQ & Headphones
+    </button>
+    <button class="tab" data-tab="surround" id="tab-surround">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M4.93 4.93a10 10 0 000 14.14M19.07 4.93a10 10 0 010 14.14M7.76 7.76a6 6 0 000 8.49M16.24 7.76a6 6 0 010 8.49" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".7"/></svg>
+      Surround
     </button>
     <button class="tab" data-tab="tools" id="tab-tools">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z" fill="currentColor"/></svg>
@@ -551,6 +564,113 @@
             allow="clipboard-read; clipboard-write; downloads"
           ></iframe>
         </div>
+      </div>
+    </div>
+
+    <!-- ── Surround Sound ───────────────────────────────────── -->
+    <div class="panel" id="panel-surround">
+      <div class="surround-panel">
+
+        <!-- Header: mode toggle + layout -->
+        <div class="surround-header">
+          <div class="surround-title-row">
+            <span class="surround-title">Surround Sound</span>
+            <span class="surround-desc">Physical speaker correction or headphone virtualization via HRTF convolution (HeSuVi / ASH-Toolset compatible).</span>
+          </div>
+          <div class="surround-mode-toggle" id="surround-mode-toggle">
+            <button class="surround-mode-btn active" data-mode="speakers" title="Per-channel gain and delay for physical multi-speaker setups">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M9 9v6h6V9H9zm10-7H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V4a2 2 0 00-2-2z" fill="currentColor" opacity=".7"/></svg>
+              Physical Speakers
+            </button>
+            <button class="surround-mode-btn" data-mode="hrtf" title="Headphone virtualization using HRTF convolution — works with HeSuVi and ASH-Toolset profiles">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 3a9 9 0 00-9 9v4a2 2 0 002 2h1v-5H5v-1a7 7 0 0114 0v1h-1v5h1a2 2 0 002-2v-4a9 9 0 00-9-9z" fill="currentColor" opacity=".7"/></svg>
+              Headphone HRTF
+            </button>
+          </div>
+          <!-- layout presets (speakers mode only) -->
+          <div class="surround-config-row" id="surround-layout-row">
+            <span class="surround-config-label">Layout</span>
+            <button class="surround-preset-btn" data-layout="2.0">2.0</button>
+            <button class="surround-preset-btn" data-layout="2.1">2.1</button>
+            <button class="surround-preset-btn" data-layout="4.0">4.0</button>
+            <button class="surround-preset-btn" data-layout="4.1">4.1</button>
+            <button class="surround-preset-btn active" data-layout="5.1">5.1</button>
+            <button class="surround-preset-btn" data-layout="6.1">6.1</button>
+            <button class="surround-preset-btn" data-layout="7.1">7.1</button>
+          </div>
+        </div>
+
+        <!-- ── Mode: Physical Speakers ─────────────────────── -->
+        <div class="surround-body" id="surround-speakers-view">
+          <div class="surround-room-wrap">
+            <div class="surround-room-label">Speaker Positions <span style="opacity:.5;font-weight:400">· click to mute</span></div>
+            <div class="surround-room" id="surround-room">
+              <div class="surround-listener-icon">👤</div>
+            </div>
+          </div>
+          <div class="surround-right">
+            <div class="surround-channels-wrap" id="surround-channels"></div>
+            <div class="surround-footer">
+              Gain &amp; delay written as <code>Channel: X</code> → <code>Gain: Y dB</code> / <code>Delay: Z ms</code> on Save to APO.
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Mode: Headphone HRTF ────────────────────────── -->
+        <div class="surround-body" id="surround-hrtf-view" style="display:none">
+          <div class="surround-hrtf-left">
+            <div class="surround-room-label" style="margin-bottom:10px">HRTF Impulse Response</div>
+
+            <div class="hrtf-file-card">
+              <div class="hrtf-file-info" id="hrtf-file-info">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" opacity=".3"><path d="M12 3a9 9 0 00-9 9v4a2 2 0 002 2h1v-5H5v-1a7 7 0 0114 0v1h-1v5h1a2 2 0 002-2v-4a9 9 0 00-9-9z" fill="currentColor"/></svg>
+                <span id="hrtf-file-name" style="font-size:11px;color:var(--text-muted)">No file selected</span>
+              </div>
+              <button class="btn-accent" id="btn-hrtf-browse">Browse HRTF…</button>
+            </div>
+
+            <div class="hrtf-info-chips">
+              <div class="hrtf-chip">
+                <span class="hrtf-chip-label">Format</span>
+                <span class="hrtf-chip-val">Multi-ch WAV · stereo WAV</span>
+              </div>
+              <div class="hrtf-chip">
+                <span class="hrtf-chip-label">Source</span>
+                <span class="hrtf-chip-val">HeSuVi · ASH-Toolset · custom</span>
+              </div>
+              <div class="hrtf-chip">
+                <span class="hrtf-chip-label">APO directive</span>
+                <span class="hrtf-chip-val" style="font-family:var(--font-mono);font-size:10px">Convolution: &lt;path&gt;</span>
+              </div>
+            </div>
+
+            <div class="hrtf-crossfeed-row">
+              <label class="hrtf-ctrl-label">Crossfeed</label>
+              <input type="range" id="hrtf-crossfeed" class="mini-slider" min="0" max="60" step="1" value="0" style="flex:1">
+              <span id="hrtf-crossfeed-val" style="font-size:11px;font-family:var(--font-mono);color:var(--cyan);min-width:28px;text-align:right">0%</span>
+            </div>
+            <p class="hrtf-crossfeed-hint">Crossfeed blends L/R for a more natural headphone stage. 15–30% is typical.</p>
+
+            <div class="hrtf-preamp-row">
+              <label class="hrtf-ctrl-label">HRTF Pre-gain</label>
+              <input type="number" id="hrtf-preamp" class="filter-input" min="-30" max="6" step="0.5" value="-6" style="width:72px">
+              <span style="font-size:11px;color:var(--text-muted)">dB</span>
+            </div>
+          </div>
+
+          <div class="surround-right">
+            <div class="hrtf-preview-header">
+              <span class="surround-room-label">APO Config Preview</span>
+              <button class="btn-ghost" id="btn-hrtf-copy-config" title="Copy config to clipboard" style="margin-left:auto">Copy</button>
+            </div>
+            <pre id="hrtf-config-preview" class="hrtf-config-preview"># Select an HRTF file to see the config</pre>
+            <div class="surround-footer" style="margin-top:auto">
+              Load HeSuVi HRTF profiles from <code>%AppData%\HeSuVi\hrir\</code> or generate custom BRIRs with
+              <strong>ASH-Toolset</strong> (Python) for headphone-specific correction.
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 

@@ -446,6 +446,8 @@ function safeLocalStorageSet(key, value) {
 document.addEventListener('DOMContentLoaded', () => {
   initThemeSystem();
   initZoomSystem();
+  initGraphResize();
+  initPanelCollapse();
   initGraph();
   initNavigation();
   initTopBar();
@@ -459,6 +461,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTargetPicker();
   initTargetCustomizer();
   initTracePanel();
+  initSurroundPanel();
   initToolsPanel();
   initHIDPanel();
   initAdvancedPanel();
@@ -468,6 +471,427 @@ document.addEventListener('DOMContentLoaded', () => {
   detectAPO();
   updateStatus('Ready');
 });
+
+// ═══════════════════════════════════════════════════════════
+// GRAPH RESIZE
+// ═══════════════════════════════════════════════════════════
+const GRAPH_H_KEY = 'neonEqGraphH';
+const GRAPH_H_MIN = 160;
+const GRAPH_H_MAX = 600;
+
+function initGraphResize() {
+  const handle = document.getElementById('graph-resize-handle');
+  const container = document.getElementById('graph-container');
+  if (!handle || !container) return;
+
+  const savedH = parseInt(localStorage.getItem(GRAPH_H_KEY), 10);
+  if (savedH && savedH >= GRAPH_H_MIN && savedH <= GRAPH_H_MAX) {
+    container.style.height = savedH + 'px';
+  }
+
+  let dragging = false;
+  let startY = 0;
+  let startH = 0;
+
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    startY = e.clientY;
+    startH = container.getBoundingClientRect().height;
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const delta = e.clientY - startY;
+    const newH = Math.max(GRAPH_H_MIN, Math.min(GRAPH_H_MAX, startH + delta));
+    container.style.height = newH + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    const h = container.getBoundingClientRect().height;
+    localStorage.setItem(GRAPH_H_KEY, Math.round(h));
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// PANEL COLLAPSE
+// ═══════════════════════════════════════════════════════════
+const PANEL_COLLAPSED_KEY = 'neonEqPanelCollapsed';
+
+function initPanelCollapse() {
+  const bar = document.getElementById('panel-collapse-bar');
+  if (!bar) return;
+  const collapsed = localStorage.getItem(PANEL_COLLAPSED_KEY) === '1';
+  if (collapsed) document.body.classList.add('panel-collapsed');
+
+  bar.addEventListener('click', () => {
+    const isNowCollapsed = document.body.classList.toggle('panel-collapsed');
+    localStorage.setItem(PANEL_COLLAPSED_KEY, isNowCollapsed ? '1' : '0');
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// SURROUND SOUND
+// ═══════════════════════════════════════════════════════════
+const SURROUND_KEY = 'neonEqSurround:v1';
+
+// APO-valid channel IDs per layout (L/R/C/LFE/RL/RR/RC/SL/SR)
+// Positions are % of room container: { left%, top% }
+const SURROUND_LAYOUTS = {
+  '2.0': [
+    { id: 'L',   name: 'Front Left',  pct: [22, 10], sub: false },
+    { id: 'R',   name: 'Front Right', pct: [78, 10], sub: false },
+  ],
+  '2.1': [
+    { id: 'L',   name: 'Front Left',  pct: [22, 10], sub: false },
+    { id: 'R',   name: 'Front Right', pct: [78, 10], sub: false },
+    { id: 'LFE', name: 'Subwoofer',   pct: [50, 10], sub: true  },
+  ],
+  '4.0': [
+    { id: 'L',   name: 'Front Left',  pct: [22, 10], sub: false },
+    { id: 'R',   name: 'Front Right', pct: [78, 10], sub: false },
+    { id: 'RL',  name: 'Rear Left',   pct: [22, 88], sub: false },
+    { id: 'RR',  name: 'Rear Right',  pct: [78, 88], sub: false },
+  ],
+  '4.1': [
+    { id: 'L',   name: 'Front Left',  pct: [22, 10], sub: false },
+    { id: 'R',   name: 'Front Right', pct: [78, 10], sub: false },
+    { id: 'LFE', name: 'Subwoofer',   pct: [8,  50], sub: true  },
+    { id: 'RL',  name: 'Rear Left',   pct: [22, 88], sub: false },
+    { id: 'RR',  name: 'Rear Right',  pct: [78, 88], sub: false },
+  ],
+  '5.1': [
+    { id: 'L',   name: 'Front Left',  pct: [22, 10], sub: false },
+    { id: 'C',   name: 'Center',      pct: [50,  5], sub: false },
+    { id: 'R',   name: 'Front Right', pct: [78, 10], sub: false },
+    { id: 'LFE', name: 'Subwoofer',   pct: [8,  50], sub: true  },
+    { id: 'RL',  name: 'Rear Left',   pct: [22, 88], sub: false },
+    { id: 'RR',  name: 'Rear Right',  pct: [78, 88], sub: false },
+  ],
+  '6.1': [
+    { id: 'L',   name: 'Front Left',  pct: [22, 10], sub: false },
+    { id: 'C',   name: 'Center',      pct: [50,  5], sub: false },
+    { id: 'R',   name: 'Front Right', pct: [78, 10], sub: false },
+    { id: 'LFE', name: 'Subwoofer',   pct: [8,  50], sub: true  },
+    { id: 'RL',  name: 'Rear Left',   pct: [22, 88], sub: false },
+    { id: 'RC',  name: 'Rear Center', pct: [50, 93], sub: false },
+    { id: 'RR',  name: 'Rear Right',  pct: [78, 88], sub: false },
+  ],
+  '7.1': [
+    { id: 'L',   name: 'Front Left',  pct: [22, 10], sub: false },
+    { id: 'C',   name: 'Center',      pct: [50,  5], sub: false },
+    { id: 'R',   name: 'Front Right', pct: [78, 10], sub: false },
+    { id: 'LFE', name: 'Subwoofer',   pct: [5,  50], sub: true  },
+    { id: 'SL',  name: 'Side Left',   pct: [5,  35], sub: false },
+    { id: 'SR',  name: 'Side Right',  pct: [95, 35], sub: false },
+    { id: 'RL',  name: 'Rear Left',   pct: [22, 88], sub: false },
+    { id: 'RR',  name: 'Rear Right',  pct: [78, 88], sub: false },
+  ],
+};
+
+let surroundState = {
+  layout: '5.1',
+  channels: {},
+};
+
+function surroundLoadState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SURROUND_KEY) || '{}');
+    if (saved.layout && SURROUND_LAYOUTS[saved.layout]) surroundState.layout = saved.layout;
+    if (saved.channels) surroundState.channels = saved.channels;
+  } catch (_) {}
+}
+
+function surroundSaveState() {
+  try { localStorage.setItem(SURROUND_KEY, JSON.stringify(surroundState)); } catch (_) {}
+}
+
+function surroundGetChannel(id) {
+  if (!surroundState.channels[id]) surroundState.channels[id] = { gain: 0, delay: 0, muted: false };
+  return surroundState.channels[id];
+}
+
+function renderSurroundRoom() {
+  const room = document.getElementById('surround-room');
+  if (!room) return;
+  // Remove old speaker buttons
+  room.querySelectorAll('.surround-spk').forEach(el => el.remove());
+
+  const speakers = SURROUND_LAYOUTS[surroundState.layout] || [];
+  for (const sp of speakers) {
+    const ch = surroundGetChannel(sp.id);
+    const btn = document.createElement('button');
+    btn.className = `surround-spk${sp.sub ? ' sub' : ''}${ch.muted ? ' muted' : ' active'}`;
+    btn.style.left = sp.pct[0] + '%';
+    btn.style.top  = sp.pct[1] + '%';
+    btn.textContent = sp.sub ? 'SUB' : sp.id;
+    btn.title = `${sp.name} — click to ${ch.muted ? 'unmute' : 'mute'}`;
+    btn.dataset.ch = sp.id;
+    room.appendChild(btn);
+  }
+
+  room.querySelectorAll('.surround-spk').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ch = surroundGetChannel(btn.dataset.ch);
+      ch.muted = !ch.muted;
+      surroundSaveState();
+      renderSurroundRoom();
+      renderSurroundChannels();
+      markDirty();
+    });
+  });
+}
+
+function renderSurroundChannels() {
+  const container = document.getElementById('surround-channels');
+  if (!container) return;
+  const speakers = SURROUND_LAYOUTS[surroundState.layout] || [];
+
+  container.innerHTML = `
+    <div class="surround-ch-header">
+      <span class="surround-ch-hdr" style="text-align:center">Ch</span>
+      <span class="surround-ch-hdr">Speaker</span>
+      <span class="surround-ch-hdr">Gain (dB)</span>
+      <span class="surround-ch-hdr">Delay (ms)</span>
+      <span class="surround-ch-hdr"></span>
+    </div>
+    ${speakers.map(sp => {
+      const ch = surroundGetChannel(sp.id);
+      const gainStr = (ch.gain >= 0 ? '+' : '') + ch.gain.toFixed(1);
+      return `<div class="surround-channel-row${ch.muted ? ' muted' : ''}" data-ch="${sp.id}">
+        <span class="surround-ch-id">${sp.id}</span>
+        <span class="surround-ch-name">${sp.name}</span>
+        <div class="surround-gain-cell">
+          <input type="range" class="surround-gain-slider" data-ch="${sp.id}" min="-20" max="20" step="0.5" value="${ch.gain}">
+          <span class="surround-gain-val">${gainStr}</span>
+        </div>
+        <input type="number" class="surround-delay-input" data-ch="${sp.id}" min="0" max="500" step="0.1" value="${ch.delay || ''}" placeholder="0">
+        <button class="surround-mute-btn${ch.muted ? ' muted' : ''}" data-ch="${sp.id}" title="${ch.muted ? 'Unmute' : 'Mute'}">⊘</button>
+      </div>`;
+    }).join('')}
+  `;
+
+  container.querySelectorAll('.surround-gain-slider').forEach(slider => {
+    slider.addEventListener('input', (e) => {
+      const id = e.target.dataset.ch;
+      const val = parseFloat(e.target.value) || 0;
+      surroundGetChannel(id).gain = val;
+      const cell = e.target.closest('.surround-gain-cell');
+      const valEl = cell && cell.querySelector('.surround-gain-val');
+      if (valEl) valEl.textContent = (val >= 0 ? '+' : '') + val.toFixed(1);
+      surroundSaveState();
+      markDirty();
+    });
+  });
+
+  container.querySelectorAll('.surround-delay-input').forEach(input => {
+    input.addEventListener('input', (e) => {
+      const id = e.target.dataset.ch;
+      surroundGetChannel(id).delay = parseFloat(e.target.value) || 0;
+      surroundSaveState();
+      markDirty();
+    });
+  });
+
+  container.querySelectorAll('.surround-mute-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.ch;
+      const ch = surroundGetChannel(id);
+      ch.muted = !ch.muted;
+      surroundSaveState();
+      renderSurroundRoom();
+      renderSurroundChannels();
+      markDirty();
+    });
+  });
+}
+
+function surroundSwitchMode(mode) {
+  surroundState.mode = mode;
+  document.querySelectorAll('.surround-mode-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === mode));
+  const layoutRow = document.getElementById('surround-layout-row');
+  if (layoutRow) layoutRow.style.display = mode === 'speakers' ? 'flex' : 'none';
+  const speakersView = document.getElementById('surround-speakers-view');
+  const hrtfView     = document.getElementById('surround-hrtf-view');
+  if (speakersView) speakersView.style.display = mode === 'speakers' ? 'flex' : 'none';
+  if (hrtfView)     hrtfView.style.display     = mode === 'hrtf'     ? 'flex' : 'none';
+  surroundSaveState();
+}
+
+function buildHrtfConfigText() {
+  const path     = surroundState.hrtfPath || '';
+  const preamp   = surroundState.hrtfPreamp ?? -6;
+  const crossfeed= surroundState.hrtfCrossfeed ?? 0;
+  const layout   = surroundState.layout;
+
+  if (!path) return '# No HRTF file selected\n# Browse for a HeSuVi or ASH-Toolset WAV file above.';
+
+  const lines = [
+    `# Headphone Surround Virtualization — ${layout}`,
+    `# HRTF: ${path.split(/[\\/]/).pop()}`,
+    '',
+    'Channel: all',
+  ];
+  if (preamp !== 0) lines.push(`Gain: ${preamp.toFixed(1)} dB`);
+  lines.push(`Convolution: "${path}"`);
+
+  if (crossfeed > 0) {
+    const cf = (crossfeed / 100).toFixed(3);
+    lines.push('');
+    lines.push(`# Crossfeed ${crossfeed}%`);
+    lines.push(`Copy: L=L+${cf}*R R=R+${cf}*L`);
+  }
+
+  return lines.join('\n');
+}
+
+function updateHrtfPreview() {
+  const el = document.getElementById('hrtf-config-preview');
+  if (el) el.textContent = buildHrtfConfigText();
+}
+
+function initSurroundPanel() {
+  surroundLoadState();
+
+  // Mode toggle
+  document.querySelectorAll('.surround-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => surroundSwitchMode(btn.dataset.mode));
+  });
+  surroundSwitchMode(surroundState.mode || 'speakers');
+
+  // Layout presets
+  document.querySelectorAll('.surround-preset-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.layout === surroundState.layout);
+    btn.addEventListener('click', () => {
+      surroundState.layout = btn.dataset.layout;
+      surroundSaveState();
+      document.querySelectorAll('.surround-preset-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.layout === surroundState.layout));
+      renderSurroundRoom();
+      renderSurroundChannels();
+      updateHrtfPreview();
+    });
+  });
+
+  renderSurroundRoom();
+  renderSurroundChannels();
+
+  // HRTF browse
+  const btnBrowse = document.getElementById('btn-hrtf-browse');
+  if (btnBrowse) {
+    btnBrowse.addEventListener('click', async () => {
+      if (window.apoAPI) {
+        const file = await window.apoAPI.selectFile({
+          title: 'Select HRTF Impulse Response',
+          filters: [{ name: 'HRTF WAV', extensions: ['wav'] }, { name: 'All Files', extensions: ['*'] }],
+        });
+        if (file) {
+          surroundState.hrtfPath = file;
+          surroundSaveState();
+          const nameEl = document.getElementById('hrtf-file-name');
+          if (nameEl) {
+            nameEl.textContent = file.split(/[\\/]/).pop();
+            nameEl.style.color = 'var(--text-primary)';
+          }
+          updateHrtfPreview();
+          markDirty();
+        }
+      } else {
+        // browser fallback
+        const input = document.createElement('input');
+        input.type = 'file'; input.accept = '.wav';
+        input.onchange = (e) => {
+          const f = e.target.files[0];
+          if (!f) return;
+          surroundState.hrtfPath = f.name;
+          surroundSaveState();
+          const nameEl = document.getElementById('hrtf-file-name');
+          if (nameEl) { nameEl.textContent = f.name; nameEl.style.color = 'var(--text-primary)'; }
+          updateHrtfPreview(); markDirty();
+        };
+        input.click();
+      }
+    });
+  }
+
+  // Restore HRTF file name
+  if (surroundState.hrtfPath) {
+    const nameEl = document.getElementById('hrtf-file-name');
+    if (nameEl) { nameEl.textContent = surroundState.hrtfPath.split(/[\\/]/).pop(); nameEl.style.color = 'var(--text-primary)'; }
+  }
+
+  // Crossfeed
+  const cfSlider = document.getElementById('hrtf-crossfeed');
+  const cfVal    = document.getElementById('hrtf-crossfeed-val');
+  if (cfSlider) {
+    cfSlider.value = surroundState.hrtfCrossfeed ?? 0;
+    if (cfVal) cfVal.textContent = cfSlider.value + '%';
+    cfSlider.addEventListener('input', (e) => {
+      surroundState.hrtfCrossfeed = parseInt(e.target.value, 10);
+      if (cfVal) cfVal.textContent = e.target.value + '%';
+      surroundSaveState(); updateHrtfPreview(); markDirty();
+    });
+  }
+
+  // Pre-gain
+  const preampInput = document.getElementById('hrtf-preamp');
+  if (preampInput) {
+    preampInput.value = surroundState.hrtfPreamp ?? -6;
+    preampInput.addEventListener('input', (e) => {
+      surroundState.hrtfPreamp = parseFloat(e.target.value) || 0;
+      surroundSaveState(); updateHrtfPreview(); markDirty();
+    });
+  }
+
+  // Copy config
+  const btnCopy = document.getElementById('btn-hrtf-copy-config');
+  if (btnCopy) {
+    btnCopy.addEventListener('click', () => {
+      navigator.clipboard.writeText(buildHrtfConfigText()).then(() => showToast('Config copied', 'success'));
+    });
+  }
+
+  updateHrtfPreview();
+}
+
+// APO lines for both surround modes
+function getSurroundApoLines() {
+  const lines = [];
+  const mode = surroundState.mode || 'speakers';
+
+  if (mode === 'hrtf') {
+    if (!surroundState.hrtfPath) return lines;
+    const text = buildHrtfConfigText();
+    lines.push(...text.split('\n'));
+    return lines;
+  }
+
+  // Physical speakers mode
+  const speakers = SURROUND_LAYOUTS[surroundState.layout] || [];
+  for (const sp of speakers) {
+    const ch = surroundGetChannel(sp.id);
+    if (ch.gain === 0 && ch.delay === 0 && !ch.muted) continue;
+    lines.push(`Channel: ${sp.id}`);
+    if (ch.muted) {
+      lines.push(`Copy: ${sp.id}=0*${sp.id}`);
+    } else {
+      if (ch.gain !== 0) lines.push(`Gain: ${ch.gain.toFixed(1)} dB`);
+      if (ch.delay > 0)  lines.push(`Delay: ${ch.delay.toFixed(1)} ms`);
+    }
+    lines.push('');
+  }
+  return lines;
+}
 
 // ═══════════════════════════════════════════════════════════
 // GRAPH
@@ -3453,7 +3877,11 @@ function loadDemoConfig() {
 async function saveConfig(options = {}) {
   const { silent = false, skipUndo = false } = options;
   if (!skipUndo) pushUndo();
-  const text = serializeConfig(appState.config);
+  let text = serializeConfig(appState.config);
+  const surroundLines = getSurroundApoLines();
+  if (surroundLines.length > 0) {
+    text += '\n# Surround Sound — per-channel gain/delay\n' + surroundLines.join('\n');
+  }
   const rawEditor = document.getElementById('raw-config-editor');
   if (rawEditor) rawEditor.value = text;
   if (window.apoAPI) {
