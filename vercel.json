@@ -1,0 +1,5 @@
+{
+  "buildCommand": "npm --prefix website run build",
+  "outputDirectory": "website/dist",
+  "installCommand": "echo No install needed"
+}
