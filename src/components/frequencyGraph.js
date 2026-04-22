@@ -18,7 +18,7 @@ export class FrequencyGraph {
     this.graphicEQ = null;
     this.preamp = 0;
 
-    this.padding = { top: 48, right: 36, bottom: 44, left: 64 };
+    this.padding = { top: 62, right: 36, bottom: 44, left: 64 };
     this.showIndividual = false;
     this.dbRange = { min: MIN_DB, max: MAX_DB };
     this.viewFreqRange = { min: MIN_FREQ, max: MAX_FREQ };
@@ -72,6 +72,13 @@ export class FrequencyGraph {
     this.onFilterChange = null; // callback
     this.onFilterSelect = null;
     this.onFilterDelete = null;
+    this.onDrawComplete = null;
+
+    this.referenceImage = null;
+    this.referenceImageOpacity = 0.38;
+    this.drawMode = false;
+    this.isDrawingEQ = false;
+    this.drawPoints = [];
 
     this._animFrame = null;
     this._dpr = window.devicePixelRatio || 1;
@@ -92,6 +99,11 @@ export class FrequencyGraph {
     this.height = rect.height;
   }
 
+  resize() {
+    this._setupCanvas();
+    this.render();
+  }
+
   _bindEvents() {
     // Resize
     this._resizeObserver = new ResizeObserver(() => {
@@ -106,6 +118,10 @@ export class FrequencyGraph {
     this.overlay.addEventListener('mousedown', (e) => this._onMouseDown(e));
     this.overlay.addEventListener('mouseup', (e) => this._onMouseUp(e));
     this.overlay.addEventListener('mouseleave', (e) => this._onMouseLeave(e));
+    this.overlay.addEventListener('touchstart', (e) => this._onTouchStart(e), { passive: false });
+    this.overlay.addEventListener('touchmove', (e) => this._onTouchMove(e), { passive: false });
+    this.overlay.addEventListener('touchend', (e) => this._onTouchEnd(e), { passive: false });
+    this.overlay.addEventListener('touchcancel', (e) => this._onTouchEnd(e), { passive: false });
     this.overlay.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
     this.overlay.addEventListener('dblclick', (e) => this._onDoubleClick(e));
     this.overlay.addEventListener('contextmenu', (e) => this._onContextMenu(e));
@@ -167,6 +183,37 @@ export class FrequencyGraph {
       eq: 0,
     };
     this.render();
+  }
+
+  setReferenceImage(src) {
+    if (!src) {
+      this.clearReferenceImage();
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      this.referenceImage = img;
+      this.render();
+    };
+    img.src = src;
+  }
+
+  clearReferenceImage() {
+    this.referenceImage = null;
+    this.render();
+  }
+
+  setDrawMode(enabled) {
+    this.drawMode = !!enabled;
+    if (!this.drawMode) {
+      this.isDrawingEQ = false;
+      this.drawPoints = [];
+      this._hideTooltip();
+    }
+    this.overlay?.classList.toggle('graph-draw-mode', this.drawMode);
+    this.overlay.style.cursor = this.drawMode ? 'crosshair' : 'crosshair';
+    this.render();
+    return this.drawMode;
   }
 
   _getFreqView() {
@@ -919,6 +966,7 @@ export class FrequencyGraph {
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, w, h);
 
+    this._drawReferenceImage(ctx, w, h);
     this._drawGrid(ctx, w, h);
 
     ctx.save();
@@ -932,9 +980,49 @@ export class FrequencyGraph {
     ctx.clip();
     this._drawCurves(ctx, w, h);
     if (this.curveVisibility.eq) this._drawNodes(ctx);
+    if (this.drawMode && this.drawPoints.length) this._drawDrawPath(ctx);
     ctx.restore();
 
     if (this.spectrumAnalyser) this.render();
+  }
+
+  _drawReferenceImage(ctx, w, h) {
+    if (!this.referenceImage) return;
+    const plotLeft = this.padding.left;
+    const plotRight = w - this.padding.right;
+    const plotTop = this.padding.top;
+    const plotBottom = h - this.padding.bottom;
+    const plotW = Math.max(1, plotRight - plotLeft);
+    const plotH = Math.max(1, plotBottom - plotTop);
+    const scale = Math.min(plotW / this.referenceImage.width, plotH / this.referenceImage.height);
+    const drawW = this.referenceImage.width * scale;
+    const drawH = this.referenceImage.height * scale;
+    const x = plotLeft + (plotW - drawW) / 2;
+    const y = plotTop + (plotH - drawH) / 2;
+
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x, y, drawW, drawH);
+    ctx.globalAlpha = this.referenceImageOpacity;
+    ctx.drawImage(this.referenceImage, x, y, drawW, drawH);
+    ctx.restore();
+  }
+
+  _drawDrawPath(ctx) {
+    if (this.drawPoints.length < 2) return;
+    ctx.save();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = '#00d4ff';
+    ctx.shadowColor = 'rgba(0, 212, 255, 0.45)';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    this.drawPoints.forEach((p, idx) => {
+      if (idx === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+    ctx.restore();
   }
 
   _drawGrid(ctx, w, h) {
@@ -1442,6 +1530,25 @@ export class FrequencyGraph {
     const y = e.clientY - rect.top;
     this.mousePos = { x, y };
 
+    if (this.drawMode) {
+      this.overlay.style.cursor = 'crosshair';
+      if (this.isDrawingEQ) {
+        this._appendDrawPoint(x, y);
+        const last = this.drawPoints[this.drawPoints.length - 1];
+        if (last) this._showTooltip(last.x, last.y, last.freq, last.gain, 'Draw EQ');
+        this.render();
+        return;
+      }
+      if (this._isInsidePlot(x, y)) {
+        const freq = this.xToFreq(x);
+        const db = this.yToDb(y);
+        this._showTooltip(x, y, freq, db, 'Draw EQ');
+      } else {
+        this._hideTooltip();
+      }
+      return;
+    }
+
     if (this.isPanning) {
       this._panViewTo(x, y);
       this._hideTooltip();
@@ -1504,6 +1611,16 @@ export class FrequencyGraph {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    if (this.drawMode) {
+      if (!this._isInsidePlot(x, y)) return;
+      e.preventDefault();
+      this.isDrawingEQ = true;
+      this.drawPoints = [];
+      this._appendDrawPoint(x, y);
+      this.render();
+      return;
+    }
+
     if (this.hoveredFilter) {
       this.dragFilter = this.hoveredFilter;
       this.overlay.style.cursor = 'grabbing';
@@ -1525,6 +1642,11 @@ export class FrequencyGraph {
   }
 
   _onMouseUp(e) {
+    if (this.drawMode && this.isDrawingEQ) {
+      this._finishDrawEQ();
+      return;
+    }
+
     if (this.dragFilter) {
       if (this.onFilterChange) this.onFilterChange(this.dragFilter);
     }
@@ -1535,6 +1657,11 @@ export class FrequencyGraph {
   }
 
   _onMouseLeave(e) {
+    if (this.drawMode && this.isDrawingEQ) {
+      this._finishDrawEQ();
+      return;
+    }
+
     this.hoveredFilter = null;
     this.dragFilter = null;
     this.isPanning = false;
@@ -1542,6 +1669,98 @@ export class FrequencyGraph {
     this.overlay.style.cursor = 'crosshair';
     this._hideTooltip();
     this.render();
+  }
+
+  _appendDrawPoint(x, y) {
+    if (!this._isInsidePlot(x, y)) return;
+    const freq = Math.max(MIN_FREQ, Math.min(MAX_FREQ, this.xToFreq(x)));
+    const gain = Math.max(-15, Math.min(15, this.yToDb(y)));
+    const last = this.drawPoints[this.drawPoints.length - 1];
+    if (last && Math.hypot(last.x - x, last.y - y) < 4) return;
+    this.drawPoints.push({
+      x,
+      y,
+      freq,
+      gain: Math.round(gain * 10) / 10,
+    });
+  }
+
+  _finishDrawEQ() {
+    const bands = this._drawPointsToBands(this.drawPoints);
+    this.isDrawingEQ = false;
+    this.drawPoints = [];
+    this._hideTooltip();
+    this.render();
+    if (bands.length && typeof this.onDrawComplete === 'function') {
+      this.onDrawComplete(bands);
+    }
+  }
+
+  _drawPointsToBands(points) {
+    if (!points || points.length < 2) return [];
+    const sorted = [...points].sort((a, b) => a.freq - b.freq);
+    const freqs = [
+      20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500,
+      630, 800, 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000,
+      10000, 12500, 16000, 20000,
+    ];
+    const minFreq = sorted[0].freq;
+    const maxFreq = sorted[sorted.length - 1].freq;
+    return freqs
+      .filter(freq => freq >= minFreq && freq <= maxFreq)
+      .map(freq => ({
+        frequency: freq,
+        gain: Math.round(this._interpolateDrawGain(sorted, freq) * 2) / 2,
+      }))
+      .filter(band => Math.abs(band.gain) >= 0.1);
+  }
+
+  _interpolateDrawGain(points, freq) {
+    if (freq <= points[0].freq) return points[0].gain;
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i];
+      const b = points[i + 1];
+      if (freq > b.freq) continue;
+      if (Math.abs(b.freq - a.freq) < 0.001) return b.gain;
+      const ratio = Math.log(freq / a.freq) / Math.log(b.freq / a.freq);
+      return a.gain + (b.gain - a.gain) * Math.max(0, Math.min(1, ratio));
+    }
+    return points[points.length - 1].gain;
+  }
+
+  _touchPoint(e) {
+    const touch = e.touches?.[0] || e.changedTouches?.[0];
+    if (!touch) return null;
+    const rect = this.overlay.getBoundingClientRect();
+    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+  }
+
+  _onTouchStart(e) {
+    if (!this.drawMode) return;
+    const point = this._touchPoint(e);
+    if (!point || !this._isInsidePlot(point.x, point.y)) return;
+    e.preventDefault();
+    this.isDrawingEQ = true;
+    this.drawPoints = [];
+    this._appendDrawPoint(point.x, point.y);
+    this.render();
+  }
+
+  _onTouchMove(e) {
+    if (!this.drawMode || !this.isDrawingEQ) return;
+    const point = this._touchPoint(e);
+    if (!point) return;
+    e.preventDefault();
+    this._appendDrawPoint(point.x, point.y);
+    const last = this.drawPoints[this.drawPoints.length - 1];
+    if (last) this._showTooltip(last.x, last.y, last.freq, last.gain, 'Draw EQ');
+    this.render();
+  }
+
+  _onTouchEnd(e) {
+    if (!this.drawMode || !this.isDrawingEQ) return;
+    e.preventDefault();
+    this._finishDrawEQ();
   }
 
   _onWheel(e) {

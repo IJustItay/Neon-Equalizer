@@ -632,7 +632,23 @@ export function runAutoEQ(measurementData, targetData, options = {}) {
   const tgt = splToPoints(targetData);
   if (!src.length || !tgt.length) return { filters: [], preamp: 0 };
 
-  const engineFilters = engine.autoEQ(src, tgt, options);
+  let engineFilters = engine.autoEQ(src, tgt, options);
+  const intensityRaw = Number(options.intensity);
+  const intensity = Number.isFinite(intensityRaw) ? Math.max(0, Math.min(1, intensityRaw)) : 1;
+  if (intensity < 0.999) {
+    engineFilters = engineFilters
+      .map(f => ({ ...f, gain: engine._round(f.gain * intensity, 1) }))
+      .filter(f => Math.abs(f.gain) >= 0.1);
+  }
+
+  if (options.subBassRollOff) {
+    const freq = Math.max(20, Math.min(120, Number(options.subBassRollOff.freq) || 45));
+    const gain = Math.max(-18, Math.min(0, Number(options.subBassRollOff.gain) || -6));
+    if (gain < -0.1) {
+      engineFilters.push({ type: 'LSQ', freq, q: 0.7, gain: engine._round(gain, 1) });
+    }
+  }
+  engineFilters = engineFilters.sort((a, b) => a.freq - b.freq);
   const appFilters = engineFiltersToAppFilters(engineFilters);
   const preamp = engine.calculatePreamp(src, engineFilters);
   return { filters: appFilters, preamp, alignment: engine.lastAlignment || null };

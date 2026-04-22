@@ -102,6 +102,7 @@
       <button class="icon-btn" id="btn-export" title="Copy APO config to clipboard">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" fill="currentColor"/></svg>
       </button>
+      <div class="topbar-divider"></div>
       <label class="save-mode-toggle" title="Automatically save every change to Equalizer APO">
         <input type="checkbox" id="auto-save-apo-enabled">
         <span class="save-mode-track"><span class="save-mode-dot"></span></span>
@@ -158,6 +159,7 @@
       <button class="graph-ctrl graph-ctrl-wide" id="graph-offset-up" title="Move selected curve up 1 dB">+1</button>
       <button class="graph-ctrl" id="graph-offset-reset" title="Reset selected curve offset">0</button>
       <div class="graph-divider"></div>
+      <button class="graph-ctrl graph-ctrl-wide" id="graph-draw-eq" title="Draw a GraphicEQ curve directly on the graph">Draw</button>
       <button class="graph-ctrl graph-ctrl-wide" id="graph-load-meas" title="Upload your own FR measurement file (.txt, .csv, .frd) — loads into graph and FR Tracer">Load FR</button>
       <div class="graph-divider"></div>
       <button class="graph-ctrl" id="graph-screenshot" title="Save graph as PNG">📷</button>
@@ -430,10 +432,39 @@
               <input type="number" id="aeq-max-filters" value="10" min="1" max="20" class="aeq-num">
               <span class="aeq-hint">Uses fewer if pruning removes ineffective bands</span>
             </fieldset>
+            <fieldset class="aeq-row">
+              <legend>Intensity</legend>
+              <label class="aeq-slider-label" for="aeq-intensity">
+                Amount
+                <input type="range" id="aeq-intensity" class="mini-slider aeq-slider" min="0" max="100" step="5" value="100">
+                <span class="aeq-hint" id="aeq-intensity-val">100%</span>
+              </label>
+            </fieldset>
+            <fieldset class="aeq-row">
+              <legend>Region</legend>
+              <label class="aeq-select-label" for="aeq-region">
+                Apply To
+                <select id="aeq-region" class="select-sm aeq-select">
+                  <option value="custom" selected>Custom range below</option>
+                  <option value="full">Full range</option>
+                  <option value="sub">Sub bass only</option>
+                  <option value="bass">Bass</option>
+                  <option value="mids">Mids</option>
+                  <option value="presence">Upper mids</option>
+                  <option value="treble">Treble</option>
+                </select>
+              </label>
+            </fieldset>
             <fieldset class="aeq-row aeq-range-row">
               <legend>Frequency Range (Hz)</legend>
               <label>Min <input type="number" id="aeq-freq-min" value="20" min="20" max="20000" class="aeq-num"></label>
               <label>Max <input type="number" id="aeq-freq-max" value="16000" min="20" max="20000" class="aeq-num"></label>
+            </fieldset>
+            <fieldset class="aeq-row aeq-rolloff-row">
+              <legend>Open Back Safety</legend>
+              <label for="aeq-subbass-rolloff"><input type="checkbox" id="aeq-subbass-rolloff"> Sub-bass roll-off</label>
+              <label>Corner <input type="number" id="aeq-rolloff-freq" value="45" min="20" max="120" class="aeq-num"> Hz</label>
+              <label>Cut <input type="number" id="aeq-rolloff-gain" value="-6" min="-18" max="0" class="aeq-num"> dB</label>
             </fieldset>
             <fieldset class="aeq-row aeq-range-row">
               <legend>Q Range</legend>
@@ -784,7 +815,7 @@
 
           <!-- Disconnected state -->
           <div id="hid-disconnected-state">
-            <p class="hid-hint">Read and write parametric EQ directly to supported audio hardware — no drivers needed. Works with USB HID, USB Serial, Bluetooth LE, and networked streamers.</p>
+            <p class="hid-hint">Read and write hardware PEQ directly — including supported peak, low-shelf, and high-shelf bands where the device protocol allows them. Works with USB HID, USB Serial, Bluetooth LE, and networked streamers.</p>
             <div class="hid-connector-row">
               <label class="hid-connector-label">Connector</label>
               <select id="device-connector" class="select-sm">
