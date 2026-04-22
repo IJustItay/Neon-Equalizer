@@ -112,6 +112,7 @@ const CONTROL_HELP = {
   'graph-offset-down': 'Move the selected curve down by 1 dB.',
   'graph-offset-up': 'Move the selected curve up by 1 dB.',
   'graph-offset-reset': 'Reset the selected curve offset back to 0 dB.',
+  'graph-draw-eq': 'Draw a GraphicEQ curve directly on the graph with your mouse or touchscreen.',
   'graph-screenshot': 'Save the current graph as a PNG image.',
   'graph-zoom-in': 'Zoom in on the graph dB range.',
   'graph-zoom-out': 'Zoom out on the graph dB range.',
@@ -154,8 +155,13 @@ const CONTROL_HELP = {
   'aeq-smooth-input': 'Smooth the input measurement before generating filters.',
   'aeq-normalization': 'Choose how AutoEQ aligns measurement and target levels.',
   'aeq-max-filters': 'Limit how many parametric filters AutoEQ may create.',
+  'aeq-intensity': 'Scale how strongly AutoEQ applies the calculated correction.',
+  'aeq-region': 'Choose the frequency region AutoEQ is allowed to correct.',
   'aeq-freq-min': 'Lowest frequency AutoEQ is allowed to correct.',
   'aeq-freq-max': 'Highest frequency AutoEQ is allowed to correct.',
+  'aeq-subbass-rolloff': 'Add a protective low-shelf cut so open-back headphones are not pushed too hard in sub bass.',
+  'aeq-rolloff-freq': 'Set the corner frequency for the protective sub-bass roll-off.',
+  'aeq-rolloff-gain': 'Set how much the protective sub-bass roll-off cuts.',
   'aeq-q-min': 'Minimum Q value AutoEQ may use for wide filters.',
   'aeq-q-max': 'Maximum Q value AutoEQ may use for narrow filters.',
   'aeq-gain-min': 'Largest cut AutoEQ may apply.',
@@ -231,8 +237,8 @@ function initThemeSystem() {
 
 // ─── UI Zoom ──────────────────────────────────────────────────
 const ZOOM_KEY = 'neonEqUiZoom';
-const ZOOM_LEVELS = [0.80, 0.88, 0.94, 1.00, 1.07, 1.15, 1.25];
-const ZOOM_DEFAULT_IDX = 3;
+const ZOOM_LEVELS = [0.90, 0.95, 1.00, 1.06, 1.12, 1.18];
+const ZOOM_DEFAULT_IDX = 2;
 
 function getZoomIdx() {
   const stored = parseFloat(safeLocalStorageGet(ZOOM_KEY));
@@ -244,13 +250,31 @@ function getZoomIdx() {
 }
 
 function applyZoom(idx) {
-  const z = ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, idx))];
+  idx = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, idx));
+  const z = ZOOM_LEVELS[idx];
   document.documentElement.style.zoom = z;
   safeLocalStorageSet(ZOOM_KEY, z);
   const label = document.getElementById('zoom-level-label');
   if (label) label.textContent = Math.round(z * 100) + '%';
   document.getElementById('btn-zoom-out').disabled = idx <= 0;
   document.getElementById('btn-zoom-in').disabled = idx >= ZOOM_LEVELS.length - 1;
+  requestAnimationFrame(() => {
+    syncAdaptiveLayout();
+    const container = document.getElementById('graph-container');
+    if (container) {
+      const h = parseFloat(container.style.height) || container.offsetHeight || GRAPH_H_MIN;
+      applyGraphHeight(container, h);
+    }
+    freqGraph?.resize?.();
+  });
+}
+
+function syncAdaptiveLayout() {
+  const z = getCurrentUiZoomScale();
+  const effectiveWidth = window.innerWidth / z;
+  document.body?.classList.toggle('ui-adaptive-zoom', z > 1.001);
+  document.body?.classList.toggle('ui-compact', effectiveWidth < 920);
+  document.body?.classList.toggle('ui-very-compact', effectiveWidth < 760);
 }
 
 function initZoomSystem() {
@@ -258,6 +282,7 @@ function initZoomSystem() {
   applyZoom(idx);
   document.getElementById('btn-zoom-out')?.addEventListener('click', () => applyZoom(getZoomIdx() - 1));
   document.getElementById('btn-zoom-in')?.addEventListener('click', () => applyZoom(getZoomIdx() + 1));
+  window.addEventListener('resize', syncAdaptiveLayout, { passive: true });
 }
 
 function applyAppTheme(theme) {
@@ -476,8 +501,22 @@ document.addEventListener('DOMContentLoaded', () => {
 // GRAPH RESIZE
 // ═══════════════════════════════════════════════════════════
 const GRAPH_H_KEY = 'neonEqGraphH';
-const GRAPH_H_MIN = 160;
-const GRAPH_H_MAX = 600;
+const GRAPH_H_MIN = 140;
+// Reserve ~290px for topbar (42) + handle (6) + collapse-bar (22) + tab-strip (34) + minimum panel (186)
+function getCurrentUiZoomScale() {
+  const z = parseFloat(document.documentElement.style.zoom || '1');
+  return Number.isFinite(z) && z > 0 ? z : 1;
+}
+
+function getGraphHMax() {
+  return Math.max(GRAPH_H_MIN + 60, Math.floor(window.innerHeight / getCurrentUiZoomScale()) - 290);
+}
+
+function applyGraphHeight(container, h) {
+  const clamped = Math.max(GRAPH_H_MIN, Math.min(getGraphHMax(), h));
+  container.style.height = clamped + 'px';
+  return clamped;
+}
 
 function initGraphResize() {
   const handle = document.getElementById('graph-resize-handle');
@@ -485,13 +524,19 @@ function initGraphResize() {
   if (!handle || !container) return;
 
   const savedH = parseInt(localStorage.getItem(GRAPH_H_KEY), 10);
-  if (savedH && savedH >= GRAPH_H_MIN && savedH <= GRAPH_H_MAX) {
-    container.style.height = savedH + 'px';
-  }
+  if (savedH && savedH >= GRAPH_H_MIN) applyGraphHeight(container, savedH);
+
+  // Re-clamp on window resize so the graph never overflows the viewport
+  window.addEventListener('resize', () => {
+    const current = container.getBoundingClientRect().height;
+    const clamped = applyGraphHeight(container, current);
+    localStorage.setItem(GRAPH_H_KEY, clamped);
+  }, { passive: true });
 
   let dragging = false;
   let startY = 0;
   let startH = 0;
+  let rafId = 0;
 
   handle.addEventListener('mousedown', (e) => {
     e.preventDefault();
@@ -505,14 +550,17 @@ function initGraphResize() {
 
   document.addEventListener('mousemove', (e) => {
     if (!dragging) return;
-    const delta = e.clientY - startY;
-    const newH = Math.max(GRAPH_H_MIN, Math.min(GRAPH_H_MAX, startH + delta));
-    container.style.height = newH + 'px';
+    cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(() => {
+      const delta = e.clientY - startY;
+      applyGraphHeight(container, startH + delta);
+    });
   });
 
   document.addEventListener('mouseup', () => {
     if (!dragging) return;
     dragging = false;
+    cancelAnimationFrame(rafId);
     handle.classList.remove('dragging');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
@@ -896,6 +944,72 @@ function getSurroundApoLines() {
 // ═══════════════════════════════════════════════════════════
 // GRAPH
 // ═══════════════════════════════════════════════════════════
+
+function initGraphToolbarLayout() {
+  const toolbar = document.querySelector('.graph-controls');
+  if (!toolbar || toolbar.classList.contains('graph-toolbar-upgraded')) return;
+  toolbar.classList.add('graph-toolbar-upgraded');
+  toolbar.querySelectorAll('.graph-divider').forEach(el => el.remove());
+
+  const byId = (id) => document.getElementById(id);
+  const makeGroup = (name, ids) => {
+    const group = document.createElement('div');
+    group.className = `graph-group graph-group-${name}`;
+    ids.map(byId).filter(Boolean).forEach(el => group.appendChild(el));
+    return group;
+  };
+  const makeMenu = (label, sections) => {
+    const details = document.createElement('details');
+    details.className = 'graph-popover';
+    const summary = document.createElement('summary');
+    summary.textContent = label;
+    summary.title = `${label} controls`;
+    const panel = document.createElement('div');
+    panel.className = 'graph-popover-panel';
+    sections.forEach(section => {
+      const row = document.createElement('div');
+      row.className = `graph-popover-section ${section.className || ''}`.trim();
+      const title = document.createElement('div');
+      title.className = 'graph-popover-section-title';
+      title.textContent = section.label;
+      const controls = document.createElement('div');
+      controls.className = 'graph-popover-controls';
+      section.ids.map(byId).filter(Boolean).forEach(el => controls.appendChild(el));
+      if (!controls.childElementCount) return;
+      row.append(title, controls);
+      panel.appendChild(row);
+    });
+    details.append(summary, panel);
+    details.addEventListener('toggle', () => {
+      if (!details.open) return;
+      toolbar.querySelectorAll('details.graph-popover[open]').forEach(other => {
+        if (other !== details) other.open = false;
+      });
+    });
+    return details;
+  };
+
+  const primary = makeGroup('primary', ['graph-show-combined', 'graph-show-individual']);
+  const viewMenu = makeMenu('View', [
+    { label: 'Display', ids: ['graph-pref-bounds', 'graph-delta', 'graph-spectrum'] },
+    { label: 'Shape', ids: ['graph-smoothing', 'graph-yscale'] },
+    { label: 'Norm', ids: ['graph-normalize-freq'], className: 'graph-popover-section-wide' },
+    { label: 'Baseline', ids: ['graph-baseline-mode'], className: 'graph-popover-section-wide' },
+    { label: 'Zoom', ids: ['graph-zoom-in', 'graph-zoom-out'] },
+  ]);
+  const curveMenu = makeMenu('Curve', [
+    { label: 'Visible', ids: ['gcv-measurement', 'gcv-target', 'gcv-corrected', 'gcv-eq'] },
+    { label: 'Offset', ids: ['graph-offset-curve', 'graph-offset-down', 'graph-offset-up', 'graph-offset-reset'] },
+  ]);
+  const actions = makeGroup('actions', ['graph-draw-eq', 'graph-load-meas', 'graph-screenshot', 'graph-reset']);
+  toolbar.replaceChildren(primary, viewMenu, curveMenu, actions);
+
+  document.addEventListener('click', (event) => {
+    if (toolbar.contains(event.target)) return;
+    toolbar.querySelectorAll('details.graph-popover[open]').forEach(menu => { menu.open = false; });
+  });
+}
+
 function initGraph() {
   const canvas  = document.getElementById('freq-graph');
   const overlay = document.getElementById('graph-overlay');
@@ -1099,6 +1213,8 @@ function initGraph() {
     }
     if (baselineSel) baselineSel.value = 'none';
     if (curveSel) curveSel.value = 'measurement';
+    freqGraph.setDrawMode(false);
+    document.getElementById('graph-draw-eq')?.classList.remove('active');
     syncCurveDisplayControls();
     refreshPreferenceBounds();
     updateGraphLegend();
@@ -1115,6 +1231,29 @@ function initGraph() {
     document.getElementById('btn-import-trace').click();
   });
 
+  const drawBtn = document.getElementById('graph-draw-eq');
+
+  drawBtn?.addEventListener('click', () => {
+    const on = freqGraph.setDrawMode(!freqGraph.drawMode);
+    drawBtn.classList.toggle('active', on);
+    showToast(on ? 'Draw mode on: drag on the graph to create GraphicEQ bands' : 'Draw mode off', 'info');
+  });
+
+  freqGraph.onDrawComplete = (bands) => {
+    if (!bands?.length || !graphicEQ) return;
+    pushUndo();
+    graphicEQ.setBands(bands, true);
+    appState.config.graphicEQ = graphicEQ.getConfig();
+    freqGraph.setGraphicEQ(appState.config.graphicEQ);
+    syncGraphicEQControls();
+    updateGraphLegend();
+    markDirty();
+    audioPlayer?.refreshEQ();
+    openEqualizer('graphic');
+    showToast(`Drawn GraphicEQ applied (${bands.length} bands)`, 'success');
+  };
+
+  initGraphToolbarLayout();
   updateGraphLegend();
 }
 
@@ -2699,6 +2838,33 @@ function initAutoEQControls() {
   const statusEl = document.getElementById('aeq-status');
   if (!btnRun) return;
 
+  const regionRanges = {
+    full: [20, 20000],
+    sub: [20, 80],
+    bass: [20, 250],
+    mids: [250, 2000],
+    presence: [2000, 6000],
+    treble: [6000, 16000],
+  };
+  const regionSelect = document.getElementById('aeq-region');
+  const freqMinEl = document.getElementById('aeq-freq-min');
+  const freqMaxEl = document.getElementById('aeq-freq-max');
+  const intensityEl = document.getElementById('aeq-intensity');
+  const intensityVal = document.getElementById('aeq-intensity-val');
+
+  regionSelect?.addEventListener('change', () => {
+    const range = regionRanges[regionSelect.value];
+    if (!range) return;
+    if (freqMinEl) freqMinEl.value = String(range[0]);
+    if (freqMaxEl) freqMaxEl.value = String(range[1]);
+  });
+  [freqMinEl, freqMaxEl].forEach(el => el?.addEventListener('input', () => {
+    if (regionSelect) regionSelect.value = 'custom';
+  }));
+  intensityEl?.addEventListener('input', () => {
+    if (intensityVal) intensityVal.textContent = `${Math.round(parseFloat(intensityEl.value) || 0)}%`;
+  });
+
   const readOptions = () => {
     const num = (id, fb) => {
       const v = parseFloat(document.getElementById(id).value);
@@ -2711,11 +2877,16 @@ function initAutoEQControls() {
     const qMax = Math.max(qMin, Math.min(10, num('aeq-q-max', 4.0)));
     const gainMin = Math.max(-40, Math.min(0, num('aeq-gain-min', -16)));
     const gainMax = Math.max(0, Math.min(40, num('aeq-gain-max', 16)));
+    const rolloffEnabled = document.getElementById('aeq-subbass-rolloff')?.checked === true;
+    const rolloffFreq = Math.max(20, Math.min(120, num('aeq-rolloff-freq', 45)));
+    const rolloffGain = Math.max(-18, Math.min(0, num('aeq-rolloff-gain', -6)));
     return {
       maxFilters: Math.max(1, Math.min(20, Math.round(num('aeq-max-filters', 10)))),
       freqRange: [freqMin, freqMax],
       qRange: [qMin, qMax],
       gainRange: [gainMin, gainMax],
+      intensity: Math.max(0, Math.min(1, num('aeq-intensity', 100) / 100)),
+      subBassRollOff: rolloffEnabled ? { freq: rolloffFreq, gain: rolloffGain } : null,
       normalizationMode,
       smooth: document.getElementById('aeq-smooth-input')?.checked !== false,
       smoothingFraction: 12,

@@ -44,6 +44,86 @@ const CONNECTOR_META = [
   { key: 'network', label: 'Network (WiiM, LAN streamers)',         available: () => typeof fetch !== 'undefined'                              },
 ];
 
+function normalizeDeviceFilterType(type) {
+  const raw = String(type || 'PK').trim();
+  if (/^(?:LSQ|LS|LSC|Low\s*Shelf|Lowshelf)/i.test(raw)) return 'LSQ';
+  if (/^(?:HSQ|HS|HSC|High\s*Shelf|Highshelf)/i.test(raw)) return 'HSQ';
+  if (/^(?:PK|PEQ|Peak|Peaking|Modal)/i.test(raw)) return 'PK';
+  return null;
+}
+
+function normalizeAppFilterType(type) {
+  const raw = String(type || 'PK').trim();
+  if (/^(?:LSQ|LS|LSC|Low\s*Shelf|Lowshelf)/i.test(raw)) return 'LS';
+  if (/^(?:HSQ|HS|HSC|High\s*Shelf|Highshelf)/i.test(raw)) return 'HS';
+  return 'PK';
+}
+
+function toDeviceFilter(filter) {
+  const type = normalizeDeviceFilterType(filter?.type);
+  if (!type) return null;
+
+  const freq = Number(filter.frequency ?? filter.freq);
+  const gain = Number(filter.gain ?? 0);
+  const q = Number(filter.q ?? 1);
+  if (!Number.isFinite(freq) || freq <= 0) return null;
+
+  return {
+    type,
+    freq,
+    gain: Number.isFinite(gain) ? gain : 0,
+    q: Number.isFinite(q) && q > 0 ? q : 1,
+    disabled: filter.enabled === false || filter.disabled === true,
+  };
+}
+
+function normalizeFiltersForDevice(filters, modelConfig = {}) {
+  const maxFilters = Number.isFinite(Number(modelConfig.maxFilters)) ? Number(modelConfig.maxFilters) : filters.length;
+  const defaults = modelConfig.defaultResetFiltersValues || [];
+  const fallback = defaults[0] || {};
+  const out = filters.slice(0, maxFilters).map(filter => {
+    const next = { ...filter };
+    next.freq = Math.max(20, Math.min(20000, Number(next.freq) || 100));
+    next.q = Math.max(0.01, Math.min(100, Number(next.q) || 1));
+    next.gain = Number.isFinite(Number(next.gain)) ? Number(next.gain) : 0;
+    next.type = normalizeDeviceFilterType(next.type) || 'PK';
+    if (modelConfig.supportsLSHSFilters === false && (next.type === 'LSQ' || next.type === 'HSQ')) {
+      next.type = 'PK';
+      next.gain = 0;
+    }
+    return next;
+  });
+
+  while (out.length < maxFilters && modelConfig.padFilters !== false && defaults.length) {
+    out.push({
+      type: normalizeDeviceFilterType(fallback.filterType || fallback.type) || 'PK',
+      freq: Number(fallback.freq) || 100,
+      gain: Number(fallback.gain) || 0,
+      q: Number(fallback.q) || 1,
+      disabled: fallback.disabled === true,
+    });
+  }
+  return out;
+}
+
+function toAppFilter(filter, index) {
+  const freq = Number(filter?.frequency ?? filter?.freq);
+  const gain = Number(filter?.gain ?? 0);
+  const q = Number(filter?.q ?? 1);
+
+  return {
+    id: filter?.id || `device_${Date.now()}_${index}`,
+    enabled: filter?.enabled !== false && filter?.disabled !== true,
+    type: normalizeAppFilterType(filter?.type),
+    frequency: Number.isFinite(freq) && freq > 0 ? freq : 1000,
+    gain: Number.isFinite(gain) ? gain : 0,
+    q: Number.isFinite(q) && q > 0 ? q : 1,
+    bw: filter?.bw ?? null,
+    color: filter?.color || '#00d4ff',
+    index,
+  };
+}
+
 class DevicePeqManager {
   constructor() {
     this._active = null;   // currently-connected connector key
@@ -92,14 +172,28 @@ class DevicePeqManager {
 
   async push(filters, preamp, slot) {
     if (!this._active) throw new Error('No device connected.');
-    const disconnected = await CONNECTORS[this._active].push(filters, preamp, slot);
+    const compatible = (filters || []).map(toDeviceFilter).filter(Boolean);
+    const deviceFilters = normalizeFiltersForDevice(compatible, this._device?.modelConfig || {});
+    if (!deviceFilters.length) {
+      throw new Error('No PEQ-compatible filters to push. Devices accept peaking and low/high shelf filters.');
+    }
+    const disconnected = await CONNECTORS[this._active].push(deviceFilters, preamp, slot);
     if (disconnected) { this._active = null; this._device = null; }
     return disconnected;
   }
 
   async pull() {
     if (!this._active) throw new Error('No device connected.');
-    return CONNECTORS[this._active].pull();
+    const result = await CONNECTORS[this._active].pull();
+    const maxGain = this._device?.modelConfig?.maxGain || 12;
+    const globalGain = Number.isFinite(Number(result?.globalGain))
+      ? Number(result.globalGain)
+      : Number(result?.preamp || 0) + maxGain;
+    return {
+      ...result,
+      globalGain,
+      filters: (result?.filters || []).map(toAppFilter),
+    };
   }
 }
 

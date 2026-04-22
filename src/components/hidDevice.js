@@ -20,9 +20,24 @@
 // Filter format helpers (convert between app and device formats)
 // ═════════════════════════════════════════════════════════════════════════════
 
+function normalizeDeviceFilterType(type) {
+  const raw = String(type || 'PK').trim();
+  if (/^(?:LSQ|LS|LSC|Low\s*Shelf|Lowshelf)/i.test(raw)) return 'LSQ';
+  if (/^(?:HSQ|HS|HSC|High\s*Shelf|Highshelf)/i.test(raw)) return 'HSQ';
+  if (/^(?:PK|PEQ|Peak|Peaking|Modal)/i.test(raw)) return 'PK';
+  return 'PK';
+}
+
+function normalizeAppFilterType(type) {
+  const normalized = normalizeDeviceFilterType(type);
+  if (normalized === 'LSQ') return 'LS';
+  if (normalized === 'HSQ') return 'HS';
+  return 'PK';
+}
+
 function toDeviceFilter(f) {
   return {
-    type:    f.type || 'PK',
+    type:    normalizeDeviceFilterType(f.type),
     freq:    f.frequency || f.freq || 1000,
     gain:    f.gain || 0,
     q:       f.q || 1,
@@ -34,7 +49,7 @@ function toAppFilter(f, i) {
   return {
     id:        `hid_${Date.now()}_${i}`,
     enabled:   !(f.disabled),
-    type:      f.type || 'PK',
+    type:      normalizeAppFilterType(f.type),
     frequency: f.freq || 1000,
     gain:      f.gain || 0,
     q:         f.q    || 1,
@@ -44,7 +59,10 @@ function toAppFilter(f, i) {
 }
 
 function sanitizeFilters(filters, maxFilters, modelConfig) {
-  const out = filters.slice(0, maxFilters);
+  const out = filters.slice(0, maxFilters).map(f => ({
+    ...f,
+    type: normalizeDeviceFilterType(f.type),
+  }));
   for (const f of out) {
     if (f.freq < 20 || f.freq > 20000) f.freq = 100;
     if (f.q < 0.01 || f.q > 100)       f.q = 1;
@@ -52,7 +70,7 @@ function sanitizeFilters(filters, maxFilters, modelConfig) {
   // Convert LS/HS → PK flat if device doesn't support
   if (modelConfig.supportsLSHSFilters === false) {
     for (const f of out) {
-      if ((f.type === 'LSQ' || f.type === 'HSQ') && f.gain !== 0) {
+      if (f.type === 'LSQ' || f.type === 'HSQ') {
         f.type = 'PK'; f.gain = 0;
       }
     }
@@ -62,7 +80,7 @@ function sanitizeFilters(filters, maxFilters, modelConfig) {
     const def = modelConfig.defaultResetFiltersValues[0];
     while (out.length < maxFilters) {
       out.push({
-        type: def.filterType || def.type || 'PK',
+        type: normalizeDeviceFilterType(def.filterType || def.type),
         freq: def.freq || 100,
         gain: def.gain || 0,
         q:    def.q    || 1,
@@ -71,6 +89,66 @@ function sanitizeFilters(filters, maxFilters, modelConfig) {
     }
   }
   return out;
+}
+
+function normalizedBiquadCoeffs(type, freq, gain, q, sampleRate = 96000) {
+  type = normalizeDeviceFilterType(type);
+  freq = Math.max(1e-6, Math.min(Number(freq) || 1000, sampleRate / 2 - 1));
+  gain = Math.max(-40, Math.min(Number(gain) || 0, 40));
+  q = Math.max(1e-4, Math.min(Number(q) || 1, 1000));
+
+  const w0 = (2 * Math.PI * freq) / sampleRate;
+  const sinW0 = Math.sin(w0);
+  const cosW0 = Math.cos(w0);
+  const a = Math.pow(10, gain / 40);
+  const alpha = sinW0 / (2 * q);
+  let b0;
+  let b1;
+  let b2;
+  let a0;
+  let a1;
+  let a2;
+
+  if (type === 'LSQ') {
+    const shelfAlpha = 2 * Math.sqrt(a) * alpha;
+    b0 = a * ((a + 1) - (a - 1) * cosW0 + shelfAlpha);
+    b1 = 2 * a * ((a - 1) - (a + 1) * cosW0);
+    b2 = a * ((a + 1) - (a - 1) * cosW0 - shelfAlpha);
+    a0 = (a + 1) + (a - 1) * cosW0 + shelfAlpha;
+    a1 = -2 * ((a - 1) + (a + 1) * cosW0);
+    a2 = (a + 1) + (a - 1) * cosW0 - shelfAlpha;
+  } else if (type === 'HSQ') {
+    const shelfAlpha = 2 * Math.sqrt(a) * alpha;
+    b0 = a * ((a + 1) + (a - 1) * cosW0 + shelfAlpha);
+    b1 = -2 * a * ((a - 1) + (a + 1) * cosW0);
+    b2 = a * ((a + 1) + (a - 1) * cosW0 - shelfAlpha);
+    a0 = (a + 1) - (a - 1) * cosW0 + shelfAlpha;
+    a1 = 2 * ((a - 1) - (a + 1) * cosW0);
+    a2 = (a + 1) - (a - 1) * cosW0 - shelfAlpha;
+  } else {
+    b0 = 1 + alpha * a;
+    b1 = -2 * cosW0;
+    b2 = 1 - alpha * a;
+    a0 = 1 + alpha / a;
+    a1 = -2 * cosW0;
+    a2 = 1 - alpha / a;
+  }
+
+  return {
+    a: [1, a1 / a0, a2 / a0],
+    b: [b0 / a0, b1 / a0, b2 / a0],
+  };
+}
+
+function quantizeBiquadForDevice(type, freq, gain, q) {
+  const coeffs = normalizedBiquadCoeffs(type, freq, gain, q);
+  return [
+    coeffs.b[0],
+    coeffs.b[1],
+    coeffs.b[2],
+    -coeffs.a[1],
+    -coeffs.a[2],
+  ].map(c => Math.round(c * 1073741824));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -257,24 +335,9 @@ const WALKPLAY = (() => {
     await dev.sendReport(rid, new Uint8Array(packet));
   }
 
-  function quantizer(a, b) {
-    const iA = a.map(d => Math.round(d * 1073741824));
-    const iB = b.map(d => Math.round(d * 1073741824));
-    return [iB[0], iB[1], iB[2], -iA[1], -iA[2]];
-  }
-
-  function computeIIR(freq, gain, q) {
+  function computeIIR(freq, gain, q, type = 'PK') {
     const bArr = new Array(20).fill(0);
-    const sqrt = Math.sqrt(Math.pow(10, gain / 20));
-    const w0 = (freq * 2 * Math.PI) / 96000;
-    const sin = Math.sin(w0) / (2 * q);
-    const d4 = sin * sqrt;
-    const d5 = sin / sqrt;
-    const d6 = d5 + 1;
-    const qd = quantizer(
-      [1, (Math.cos(w0) * -2) / d6, (1 - d5) / d6],
-      [(d4 + 1) / d6, (Math.cos(w0) * -2) / d6, (1 - d4) / d6]
-    );
+    const qd = quantizeBiquadForDevice(type, freq, gain, q);
     let idx = 0;
     for (const v of qd) {
       bArr[idx]     = v & 0xFF;
@@ -348,7 +411,7 @@ const WALKPLAY = (() => {
 
       for (let i = 0; i < filters.length; i++) {
         const f = filters[i];
-        const coeffs = computeIIR(f.freq, f.disabled ? 0 : f.gain, f.q);
+        const coeffs = computeIIR(f.freq, f.disabled ? 0 : f.gain, f.q, f.type);
         const packet = [
           WRITE, CMD.PEQ_VALUES, 0x18, 0x00, i, 0x00, 0x00,
           ...coeffs,
@@ -430,18 +493,8 @@ const MOONDROP = (() => {
   const TYPE_TO_CODE = { PK: 2, LSQ: 1, HSQ: 3 };
   const CODE_TO_TYPE = { 1: 'LSQ', 2: 'PK', 3: 'HSQ' };
 
-  function encodeBiquad(freq, gain, q) {
-    const A = Math.pow(10, gain / 40);
-    const w0 = (2 * Math.PI * freq) / 96000;
-    const alpha = Math.sin(w0) / (2 * q);
-    const cosW = Math.cos(w0);
-    const norm = 1 + alpha / A;
-    const b0 = (1 + alpha * A) / norm;
-    const b1 = (-2 * cosW) / norm;
-    const b2 = (1 - alpha * A) / norm;
-    const a1 = -b1;
-    const a2 = (1 - alpha / A) / norm;
-    return [b0, b1, b2, a1, -a2].map(c => Math.round(c * 1073741824));
+  function encodeBiquad(freq, gain, q, type = 'PK') {
+    return quantizeBiquadForDevice(type, freq, gain, q);
   }
   function coeffsToBytes(coeffs) {
     const arr = new Uint8Array(20);
@@ -464,7 +517,7 @@ const MOONDROP = (() => {
     p[4] = idx;
     p[5] = 0x00;
     p[6] = 0x00;
-    p.set(coeffsToBytes(encodeBiquad(f.freq, f.gain, f.q)), 7);
+    p.set(coeffsToBytes(encodeBiquad(f.freq, f.gain, f.q, f.type)), 7);
     p[27] = f.freq & 0xFF;
     p[28] = (f.freq >> 8) & 0xFF;
     p[29] = Math.round((f.q % 1) * 256);
@@ -859,7 +912,7 @@ export const DEVICE_CONFIGS = [
     defaultModelConfig: {
       minGain: -12, maxGain: 6, maxFilters: 8, schemeNo: 10,
       disconnectOnSave: false, disabledPresetId: -1,
-      supportsLSHSFilters: false, supportsPregain: true,
+      supportsLSHSFilters: true, supportsPregain: true,
       defaultResetFiltersValues: [{ gain: 0, freq: 100, q: 1, type: 'PK' }],
       availableSlots: [{ id: 101, name: 'Custom' }],
     },
