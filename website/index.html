@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Neon Equalizer is a desktop control center for Equalizer APO, AutoEQ, Squiglink targets, hardware PEQ, and audio tools.">
+    <title>Neon Equalizer</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-nav">
+      <a class="brand" href="#top" aria-label="Neon Equalizer home">
+        <img src="./assets/logo.png" alt="" class="brand-mark">
+        <span>Neon Equalizer</span>
+      </a>
+      <nav aria-label="Primary">
+        <a href="#features">Features</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#download">Download</a>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Equalizer APO control center</p>
+          <h1>Neon Equalizer</h1>
+          <p class="hero-lede">
+            Parametric EQ, AutoEQ, Squiglink targets, hardware PEQ, surround tools, and APO power features in one focused Windows app.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="https://github.com/IJustItay/Neon-Equalizer/releases/latest">Download Latest</a>
+            <a class="button" href="https://github.com/IJustItay/Neon-Equalizer">View GitHub</a>
+          </div>
+          <div class="hero-stats" aria-label="Highlights">
+            <span><b>v2.1.1</b> current build</span>
+            <span><b>AutoEQ</b> with safety controls</span>
+            <span><b>Device PEQ</b> peak and shelf aware</span>
+          </div>
+        </div>
+        <div class="hero-visual" aria-label="Neon Equalizer app screenshot">
+          <img src="./assets/app-screenshot.png" alt="Neon Equalizer desktop app showing the frequency graph and EQ controls.">
+          <div class="signal-strip" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="feature-band" id="features">
+        <div class="section-heading">
+          <p class="eyebrow">Built for tuning work</p>
+          <h2>Fast enough for experiments. Precise enough for daily listening.</h2>
+        </div>
+        <div class="feature-grid">
+          <article>
+            <span class="feature-index">01</span>
+            <h3>EQ That Stays Legible</h3>
+            <p>Parametric and Graphic EQ controls sit beside a live response graph, A/B snapshots, preview audio, and reset points where you need them.</p>
+          </article>
+          <article>
+            <span class="feature-index">02</span>
+            <h3>AutoEQ With Guardrails</h3>
+            <p>Choose the correction region, intensity, filter budget, normalization, and sub-bass roll-off so open-back headphones do not get reckless bass boosts.</p>
+          </article>
+          <article>
+            <span class="feature-index">03</span>
+            <h3>Hardware-Aware PEQ</h3>
+            <p>Push and pull supported peak, low-shelf, and high-shelf bands from compatible devices through USB HID, serial, Bluetooth LE, or network paths.</p>
+          </article>
+          <article>
+            <span class="feature-index">04</span>
+            <h3>APO Tools In Reach</h3>
+            <p>
+              Surround routing, HRTF previews, convolution, VST plugins, loudness correction, channel routing, delay, and raw APO editing live in the same workspace.
+              HRTF users can start with <a href="https://sourceforge.net/projects/hesuvi/">HeSuVi</a> or build custom BRIRs with <a href="https://github.com/ShanonPearce/ASH-Toolset">ASH-Toolset</a>.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="workflow" id="workflow">
+        <div>
+          <p class="eyebrow">Workflow</p>
+          <h2>Measure, target, shape, save.</h2>
+          <p>
+            Bring in a measurement, load a target, generate filters, then trim the last few dB by ear. Neon Equalizer keeps the signal path visible from graph to APO output.
+          </p>
+        </div>
+        <ol class="workflow-list">
+          <li><span>Load</span> bundled or Squiglink measurements and targets.</li>
+          <li><span>Generate</span> AutoEQ filters with intensity and range limits.</li>
+          <li><span>Refine</span> with graph handles, preview audio, and A/B history.</li>
+          <li><span>Deploy</span> to Equalizer APO or supported hardware PEQ.</li>
+        </ol>
+      </section>
+
+      <section class="download" id="download">
+        <div>
+          <p class="eyebrow">Windows desktop</p>
+          <h2>Download the latest build from GitHub Releases.</h2>
+          <p>Portable and installer builds are published with release notes so you can see exactly what changed before updating.</p>
+        </div>
+        <a class="button primary large" href="https://github.com/IJustItay/Neon-Equalizer/releases/latest">Get Neon Equalizer</a>
+      </section>
+    </main>
+
+    <footer>
+      <span>Neon Equalizer</span>
+      <a href="https://github.com/IJustItay/Neon-Equalizer/issues">Report an issue</a>
+    </footer>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

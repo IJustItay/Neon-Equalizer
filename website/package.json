@@ -1,0 +1,9 @@
+{
+  "name": "neon-equalizer-site",
+  "private": true,
+  "version": "2.1.1",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  }
+}
