@@ -491,6 +491,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initHIDPanel();
   initAdvancedPanel();
   initAboutPanel();
+  initExternalLinks();
   initHelpSystem();
   initUpdateChecker();
   detectAPO();
@@ -645,16 +646,28 @@ const SURROUND_LAYOUTS = {
   ],
 };
 
-let surroundState = {
-  layout: '5.1',
-  channels: {},
-};
+function createDefaultSurroundState() {
+  return {
+    mode: 'speakers',
+    layout: '5.1',
+    channels: {},
+    hrtfPath: '',
+    hrtfPreamp: -6,
+    hrtfCrossfeed: 0,
+  };
+}
+
+let surroundState = createDefaultSurroundState();
 
 function surroundLoadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(SURROUND_KEY) || '{}');
+    if (saved.mode === 'speakers' || saved.mode === 'hrtf') surroundState.mode = saved.mode;
     if (saved.layout && SURROUND_LAYOUTS[saved.layout]) surroundState.layout = saved.layout;
     if (saved.channels) surroundState.channels = saved.channels;
+    if (typeof saved.hrtfPath === 'string') surroundState.hrtfPath = saved.hrtfPath;
+    if (Number.isFinite(Number(saved.hrtfPreamp))) surroundState.hrtfPreamp = Number(saved.hrtfPreamp);
+    if (Number.isFinite(Number(saved.hrtfCrossfeed))) surroundState.hrtfCrossfeed = Number(saved.hrtfCrossfeed);
   } catch (_) {}
 }
 
@@ -808,6 +821,31 @@ function updateHrtfPreview() {
   if (el) el.textContent = buildHrtfConfigText();
 }
 
+function resetSurroundPanel() {
+  surroundState = createDefaultSurroundState();
+  surroundSaveState();
+  document.querySelectorAll('.surround-preset-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.layout === surroundState.layout);
+  });
+  surroundSwitchMode('speakers');
+  const nameEl = document.getElementById('hrtf-file-name');
+  if (nameEl) {
+    nameEl.textContent = 'No file selected';
+    nameEl.style.color = '';
+  }
+  const cfSlider = document.getElementById('hrtf-crossfeed');
+  const cfVal = document.getElementById('hrtf-crossfeed-val');
+  if (cfSlider) cfSlider.value = String(surroundState.hrtfCrossfeed);
+  if (cfVal) cfVal.textContent = `${surroundState.hrtfCrossfeed}%`;
+  const preampInput = document.getElementById('hrtf-preamp');
+  if (preampInput) preampInput.value = String(surroundState.hrtfPreamp);
+  renderSurroundRoom();
+  renderSurroundChannels();
+  updateHrtfPreview();
+  markDirty();
+  showToast('Surround settings reset', 'success');
+}
+
 function initSurroundPanel() {
   surroundLoadState();
 
@@ -815,6 +853,7 @@ function initSurroundPanel() {
   document.querySelectorAll('.surround-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => surroundSwitchMode(btn.dataset.mode));
   });
+  document.getElementById('btn-surround-reset')?.addEventListener('click', resetSurroundPanel);
   surroundSwitchMode(surroundState.mode || 'speakers');
 
   // Layout presets
@@ -2002,6 +2041,15 @@ async function openExternalUrl(url) {
   window.open(url, '_blank', 'noopener');
 }
 
+function initExternalLinks() {
+  document.querySelectorAll('[data-external-link]').forEach(link => {
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      openExternalUrl(link.href);
+    });
+  });
+}
+
 // ═══════════════════════════════════════════════════════════
 // PARAMETRIC EQ
 // ═══════════════════════════════════════════════════════════
@@ -2018,6 +2066,16 @@ function initParametricEQ() {
 
   document.getElementById('btn-add-filter').addEventListener('click', () => {
     parametricEQ.addFilter();
+  });
+
+  document.getElementById('btn-reset-parametric')?.addEventListener('click', () => {
+    pushUndo();
+    appState.config.filters = [];
+    appState.config.preamp = 0;
+    refreshUI();
+    markDirty();
+    audioPlayer?.refreshEQ();
+    showToast('Parametric EQ reset', 'success');
   });
 
   document.getElementById('filter-preset-select').addEventListener('change', (e) => {
@@ -2852,6 +2910,40 @@ function initAutoEQControls() {
   const intensityEl = document.getElementById('aeq-intensity');
   const intensityVal = document.getElementById('aeq-intensity-val');
 
+  const setAutoEQDefaults = () => {
+    const values = {
+      'aeq-max-filters': '10',
+      'aeq-normalization': 'auto',
+      'aeq-region': 'custom',
+      'aeq-freq-min': '20',
+      'aeq-freq-max': '16000',
+      'aeq-intensity': '100',
+      'aeq-rolloff-freq': '45',
+      'aeq-rolloff-gain': '-6',
+      'aeq-q-min': '0.4',
+      'aeq-q-max': '4.0',
+      'aeq-gain-min': '-16',
+      'aeq-gain-max': '16',
+    };
+    Object.entries(values).forEach(([id, value]) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value;
+    });
+    const shelves = document.getElementById('aeq-use-shelf-filter');
+    const smooth = document.getElementById('aeq-smooth-input');
+    const rolloff = document.getElementById('aeq-subbass-rolloff');
+    if (shelves) shelves.checked = true;
+    if (smooth) smooth.checked = true;
+    if (rolloff) rolloff.checked = false;
+    if (intensityVal) intensityVal.textContent = '100%';
+    if (statusEl) statusEl.style.display = 'none';
+  };
+
+  document.getElementById('btn-aeq-reset')?.addEventListener('click', () => {
+    setAutoEQDefaults();
+    showToast('AutoEQ parameters reset', 'success');
+  });
+
   regionSelect?.addEventListener('change', () => {
     const range = regionRanges[regionSelect.value];
     if (!range) return;
@@ -3474,14 +3566,26 @@ function initConvolution() {
     if (file) setConvolutionFile(file);
   });
   document.getElementById('btn-remove-ir')?.addEventListener('click', () => {
-    appState.config.convolution = null;
-    document.getElementById('ir-drop-zone').style.display = '';
-    document.getElementById('ir-file-info').style.display = 'none';
+    clearConvolutionFile();
     markDirty();
+  });
+  document.getElementById('btn-reset-ir')?.addEventListener('click', () => {
+    pushUndo();
+    clearConvolutionFile();
+    markDirty();
+    showToast('Impulse response cleared', 'success');
   });
   document.getElementById('ir-enabled')?.addEventListener('change', (e) => {
     if (appState.config.convolution) { appState.config.convolution.enabled = e.target.checked; markDirty(); }
   });
+}
+
+function clearConvolutionFile() {
+  appState.config.convolution = null;
+  const drop = document.getElementById('ir-drop-zone');
+  const info = document.getElementById('ir-file-info');
+  if (drop) drop.style.display = '';
+  if (info) info.style.display = 'none';
 }
 
 function setConvolutionFile(filePath) {
@@ -3501,6 +3605,13 @@ function initVSTPlugins() {
     appState.config.vstPlugins.push({ library: '', parameters: '', enabled: true });
     renderVSTPlugins();
     markDirty();
+  });
+  document.getElementById('btn-reset-vst')?.addEventListener('click', () => {
+    pushUndo();
+    appState.config.vstPlugins = [];
+    renderVSTPlugins();
+    markDirty();
+    showToast('VST plugins reset', 'success');
   });
 }
 
@@ -3692,6 +3803,17 @@ function initChannelRouting() {
     renderCopyRoutes();
     markDirty();
   });
+  document.getElementById('btn-reset-routing')?.addEventListener('click', () => {
+    pushUndo();
+    appState.config.channels = 'all';
+    appState.config.copies = (appState.config.copies || []).filter(c => c.isEffect);
+    document.querySelectorAll('#channel-buttons .ch-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.channel === 'all');
+    });
+    renderCopyRoutes();
+    markDirty();
+    showToast('Channel routing reset', 'success');
+  });
 }
 
 function renderCopyRoutes() {
@@ -3726,6 +3848,13 @@ function initDelay() {
     renderDelays();
     markDirty();
   });
+  document.getElementById('btn-reset-delay')?.addEventListener('click', () => {
+    pushUndo();
+    appState.config.delays = [];
+    renderDelays();
+    markDirty();
+    showToast('Delay entries reset', 'success');
+  });
 }
 
 function renderDelays() {
@@ -3757,6 +3886,20 @@ function renderDelays() {
 }
 
 function initEffects() {
+  const renderEffectDefaults = () => {
+    const bass = document.getElementById('effect-bass');
+    const treble = document.getElementById('effect-treble');
+    const balance = document.getElementById('effect-balance');
+    const crossfeed = document.getElementById('effect-crossfeed-enabled');
+    if (bass) bass.value = '0';
+    if (treble) treble.value = '0';
+    if (balance) balance.value = '0';
+    if (crossfeed) crossfeed.checked = false;
+    document.getElementById('effect-bass-val').textContent = '0.0 dB';
+    document.getElementById('effect-treble-val').textContent = '0.0 dB';
+    document.getElementById('effect-balance-val').textContent = 'Center';
+  };
+
   const update = () => {
     const bass    = parseFloat(document.getElementById('effect-bass').value);
     const treble  = parseFloat(document.getElementById('effect-treble').value);
@@ -3771,7 +3914,7 @@ function initEffects() {
     if (bass   !== 0) appState.config.filters.push({ isEffect:true, enabled:true, type:'LSC', frequency:105, gain:bass, q:0.71 });
     if (treble !== 0) appState.config.filters.push({ isEffect:true, enabled:true, type:'HSC', frequency:10000, gain:treble, q:0.71 });
 
-    appState.config.copies = appState.config.copies.filter(c => !c.isEffect);
+    appState.config.copies = (appState.config.copies || []).filter(c => !c.isEffect);
     if (xfeed) {
       appState.config.copies.push({ isEffect:true, enabled:true, target:'L', expression:'L+0.2*R' });
       appState.config.copies.push({ isEffect:true, enabled:true, target:'R', expression:'R+0.2*L' });
@@ -3791,6 +3934,16 @@ function initEffects() {
     document.getElementById(id).addEventListener('input', update);
   });
   document.getElementById('effect-crossfeed-enabled').addEventListener('change', update);
+  document.getElementById('btn-reset-effects')?.addEventListener('click', () => {
+    pushUndo();
+    renderEffectDefaults();
+    appState.config.filters = appState.config.filters.filter(f => !f.isEffect);
+    appState.config.copies = (appState.config.copies || []).filter(c => !c.isEffect);
+    refreshUI();
+    markDirty();
+    audioPlayer?.refreshEQ();
+    showToast('Audio effects reset', 'success');
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3805,6 +3958,16 @@ function initAdvancedPanel() {
       appState.config.stage = btn.dataset.stage;
       markDirty();
     });
+  });
+  document.getElementById('btn-reset-stage')?.addEventListener('click', () => {
+    pushUndo();
+    appState.config.stage = 'post-mix';
+    document.querySelectorAll('.stage-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.stage === 'post-mix');
+    });
+    updateRawConfigEditor();
+    markDirty();
+    showToast('Processing stage reset', 'success');
   });
 
   // Presets — shared localStorage store, APO file as optional bonus
@@ -3851,8 +4014,20 @@ function initAdvancedPanel() {
     const file = await selectFile({ filters: [{ name: 'Config', extensions: ['txt','cfg'] }] });
     if (file) { appState.config.includes.push({ file, enabled: true }); renderIncludes(); markDirty(); }
   });
+  document.getElementById('btn-reset-includes')?.addEventListener('click', () => {
+    pushUndo();
+    appState.config.includes = [];
+    renderIncludes();
+    updateRawConfigEditor();
+    markDirty();
+    showToast('Include files reset', 'success');
+  });
 
   // Raw editor
+  document.getElementById('btn-reset-raw')?.addEventListener('click', () => {
+    updateRawConfigEditor();
+    showToast('Raw text regenerated from GUI', 'success');
+  });
   document.getElementById('btn-parse-raw')?.addEventListener('click', () => {
     const raw = document.getElementById('raw-config-editor').value;
     if (raw.trim()) { loadConfigFromText(raw); showToast('Parsed to GUI', 'success'); }

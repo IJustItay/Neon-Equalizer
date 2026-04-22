@@ -246,6 +246,7 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="currentColor"/></svg>
           Add Filter
         </button>
+        <button class="btn-ghost danger-soft" id="btn-reset-parametric" title="Reset parametric filters and preamp">Reset EQ</button>
         <span class="filter-count-badge" id="filter-count-badge">0 filters</span>
         <div class="toolbar-spacer"></div>
         <select id="quick-preset-select" class="select-sm quick-preset-select">
@@ -478,7 +479,10 @@
             </fieldset>
           </div>
 
-          <button class="btn-primary aeq-run-btn" id="btn-aeq-run" disabled>Run AutoEQ</button>
+          <div class="aeq-actions">
+            <button class="btn-primary aeq-run-btn" id="btn-aeq-run" disabled>Run AutoEQ</button>
+            <button class="btn-ghost" id="btn-aeq-reset" title="Restore AutoEQ parameter defaults">Reset</button>
+          </div>
           <div id="aeq-status" class="aeq-status" style="display:none;"></div>
         </div>
 
@@ -608,6 +612,7 @@
             <span class="surround-title">Surround Sound</span>
             <span class="surround-desc">Physical speaker correction or headphone virtualization via HRTF convolution (HeSuVi / ASH-Toolset compatible).</span>
           </div>
+          <button class="btn-ghost danger-soft surround-reset-btn" id="btn-surround-reset" title="Reset surround layout, channel trims, delays, and HRTF settings">Reset</button>
           <div class="surround-mode-toggle" id="surround-mode-toggle">
             <button class="surround-mode-btn active" data-mode="speakers" title="Per-channel gain and delay for physical multi-speaker setups">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M9 9v6h6V9H9zm10-7H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V4a2 2 0 00-2-2z" fill="currentColor" opacity=".7"/></svg>
@@ -696,8 +701,10 @@
             </div>
             <pre id="hrtf-config-preview" class="hrtf-config-preview"># Select an HRTF file to see the config</pre>
             <div class="surround-footer" style="margin-top:auto">
-              Load HeSuVi HRTF profiles from <code>%AppData%\HeSuVi\hrir\</code> or generate custom BRIRs with
-              <strong>ASH-Toolset</strong> (Python) for headphone-specific correction.
+              Load <a class="inline-link" href="https://sourceforge.net/projects/hesuvi/" data-external-link>HeSuVi</a>
+              HRTF profiles from <code>%AppData%\HeSuVi\hrir\</code> or generate custom BRIRs with
+              <a class="inline-link" href="https://github.com/ShanonPearce/ASH-Toolset" data-external-link>ASH-Toolset</a>
+              for headphone-specific correction.
             </div>
           </div>
         </div>
@@ -715,6 +722,7 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 17h3V7H4v10zm6 0h4V3h-4v14zm7 0h3v-7h-3v7z" fill="currentColor" opacity=".75"/><path d="M3 20h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".35"/></svg>
             <span>VST Plugins</span>
             <button class="btn-ghost tool-header-action" id="btn-add-vst">+ Add Plugin</button>
+            <button class="btn-ghost danger-soft tool-reset-action" id="btn-reset-vst" title="Remove all VST plugins">Reset</button>
           </div>
           <p class="tool-hint">Load Equalizer APO VST DLL effects and optional parameter text.</p>
           <div id="vst-plugin-list" class="vst-plugin-list"></div>
@@ -725,6 +733,7 @@
           <div class="tool-card-header">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3h-6z" fill="currentColor" opacity=".7"/></svg>
             <span>Convolution (IR)</span>
+            <button class="btn-ghost danger-soft tool-header-action" id="btn-reset-ir" title="Clear the loaded impulse response">Reset</button>
           </div>
           <div id="ir-drop-zone" class="ir-zone">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3h-6z" fill="currentColor" opacity=".3"/></svg>
@@ -782,6 +791,7 @@
           <div class="tool-card-header">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 3L3 10.5V13l7 2 2 7h2.5L21 3z" fill="currentColor" opacity=".7"/></svg>
             <span>Channel Routing</span>
+            <button class="btn-ghost danger-soft tool-header-action" id="btn-reset-routing" title="Reset channel selection and copy routes">Reset</button>
           </div>
           <div class="channel-buttons" id="channel-buttons">
             <button class="ch-btn active" data-channel="all">ALL</button>
@@ -801,6 +811,7 @@
           <div class="tool-card-header">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5" opacity=".5"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <span>Delay</span>
+            <button class="btn-ghost danger-soft tool-header-action" id="btn-reset-delay" title="Remove all delay entries">Reset</button>
           </div>
           <div id="delay-list" class="delay-list"></div>
           <button class="btn-ghost w-full" id="btn-add-delay">+ Add Delay</button>
@@ -871,6 +882,7 @@
           <div class="tool-card-header">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".7"/></svg>
             <span>Audio Effects</span>
+            <button class="btn-ghost danger-soft tool-header-action" id="btn-reset-effects" title="Reset bass, treble, balance, and crossfeed">Reset</button>
           </div>
           <div class="effect-row">
             <span>Bass</span>
@@ -903,7 +915,10 @@
 
         <!-- Stage + Presets -->
         <div class="adv-section">
-          <h3 class="section-title">Processing Stage</h3>
+          <div class="section-title-row">
+            <h3 class="section-title">Processing Stage</h3>
+            <button class="btn-ghost danger-soft mini-reset-btn" id="btn-reset-stage" title="Restore Post-Mix stage">Reset</button>
+          </div>
           <div class="stage-buttons" id="stage-buttons">
             <button class="stage-btn active" data-stage="post-mix">Post-Mix</button>
             <button class="stage-btn" data-stage="pre-mix">Pre-Mix</button>
@@ -937,7 +952,10 @@
 
         <!-- Include Files -->
         <div class="adv-section">
-          <h3 class="section-title">Include Files</h3>
+          <div class="section-title-row">
+            <h3 class="section-title">Include Files</h3>
+            <button class="btn-ghost danger-soft mini-reset-btn" id="btn-reset-includes" title="Remove all include files">Reset</button>
+          </div>
           <div id="include-list" class="include-list"></div>
           <button class="btn-ghost w-full" id="btn-add-include">+ Add Include</button>
           <h3 class="section-title" style="margin-top:20px;">Expression Editor</h3>
@@ -946,7 +964,10 @@
 
         <!-- Raw Config -->
         <div class="adv-section adv-wide">
-          <h3 class="section-title">Raw Configuration</h3>
+          <div class="section-title-row">
+            <h3 class="section-title">Raw Configuration</h3>
+            <button class="btn-ghost mini-reset-btn" id="btn-reset-raw" title="Reload generated config from the current GUI state">Reset Text</button>
+          </div>
           <textarea id="raw-config-editor" class="code-editor" rows="12" placeholder="# Equalizer APO Configuration&#10;# Paste or edit raw config.txt content here"></textarea>
           <div class="raw-actions">
             <button class="btn-ghost" id="btn-parse-raw">Parse to GUI</button>

@@ -1533,6 +1533,13 @@ body.panel-collapsed .graph-resize-handle { display: none; }
   font-size: 11px;
   white-space: nowrap;
 }
+.tool-reset-action {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.tool-header-action + .tool-reset-action { margin-left: 4px; }
 .tool-hint,
 .tool-empty {
   font-size: 11px;
@@ -2522,6 +2529,16 @@ body.panel-collapsed .graph-resize-handle { display: none; }
   text-transform: uppercase;
   box-shadow: 0 12px 28px rgba(0,212,255,0.16);
 }
+.aeq-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+.aeq-actions .btn-ghost {
+  min-width: 76px;
+  justify-content: center;
+}
 .aeq-run-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -3156,9 +3173,16 @@ body.help-mode [data-help] {
   flex-shrink: 0;
   flex-wrap: wrap;
 }
-.surround-title-row { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+.surround-title-row { display: flex; flex-direction: column; gap: 2px; flex: 1 1 300px; min-width: 240px; }
 .surround-title { font-size: 13px; font-weight: 700; color: var(--text-primary); }
 .surround-desc { font-size: 11px; color: var(--text-muted); max-width: 360px; }
+.surround-reset-btn {
+  height: 30px;
+  padding: 0 11px;
+  margin-left: auto;
+  font-size: 11px;
+  flex-shrink: 0;
+}
 
 /* Mode toggle (Physical / HRTF) */
 .surround-mode-toggle {
@@ -3221,6 +3245,23 @@ body.help-mode [data-help] {
 }
 .surround-preset-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 .surround-preset-btn.active { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); }
+
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.section-title-row .section-title {
+  margin: 0;
+}
+.mini-reset-btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
 
 .surround-body {
   display: flex;
@@ -3429,6 +3470,16 @@ body.help-mode [data-help] {
   padding: 1px 4px;
   border-radius: 3px;
   color: var(--cyan);
+}
+.inline-link {
+  color: var(--cyan);
+  font-weight: 700;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(0, 212, 255, 0.36);
+}
+.inline-link:hover {
+  color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
 }
 
 /* HRTF mode */
