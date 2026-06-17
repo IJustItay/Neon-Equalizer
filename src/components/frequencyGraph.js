@@ -35,6 +35,9 @@ export class FrequencyGraph {
 
     // Smoothing (1/N octave). 'none', '1/48', '1/24', '1/12', '1/6', '1/3'
     this.smoothing = 'none';
+    // Normalization mode: hz, avg, or none. Avg matches modernGraphTool's
+    // 300-3000 Hz reference window.
+    this.normalizeMode = 'hz';
     // Normalization reference frequency (0 = disabled / keep raw alignment)
     this.normalizeFreq = 1000;
     // Show measurement − target delta as a semi-transparent band centred at 0 dB.
@@ -165,6 +168,7 @@ export class FrequencyGraph {
     this.dbRange = { min: MIN_DB, max: MAX_DB };
     this.showIndividual = false;
     this.smoothing = 'none';
+    this.normalizeMode = 'hz';
     this.normalizeFreq = 1000;
     this._renormalizeLoaded();
     this.showDelta = false;
@@ -655,10 +659,21 @@ export class FrequencyGraph {
     return this.prefBoundsVisible;
   }
 
-  // Normalizes an array of SPL values to 0 dB at the configured reference frequency.
+  // Normalizes SPL to the configured graph reference.
   normalizeSplData(data) {
     data = this._sanitizeCurve(data);
     if (!data || !data.freq || !data.freq.length) return data;
+    if (this.normalizeMode === 'avg') {
+      const values = data.spl.filter((_, i) => data.freq[i] >= 300 && data.freq[i] <= 3000);
+      if (values.length < 3) return { freq: data.freq, spl: data.spl.slice() };
+      const avg = values.reduce((sum, value) => sum + value, 0) / values.length;
+      return {
+        freq: data.freq,
+        spl: data.spl.map(s => s - avg),
+      };
+    }
+    if (this.normalizeMode === 'none') return { freq: data.freq, spl: data.spl.slice() };
+
     const ref = this.normalizeFreq;
     if (!ref || ref <= 0) return { freq: data.freq, spl: data.spl.slice() };
 
@@ -731,6 +746,19 @@ export class FrequencyGraph {
 
   setNormalizeFreq(freq) {
     this.normalizeFreq = Math.max(0, +freq || 0);
+    this.normalizeMode = this.normalizeFreq > 0 ? 'hz' : 'none';
+    this._renormalizeLoaded();
+    this.render();
+  }
+
+  setNormalization(mode = 'hz', freq = this.normalizeFreq) {
+    const nextMode = String(mode || 'hz').toLowerCase();
+    this.normalizeMode = ['hz', 'avg', 'none'].includes(nextMode) ? nextMode : 'hz';
+    if (this.normalizeMode === 'hz') {
+      this.normalizeFreq = Math.max(10, Math.min(24000, +freq || 1000));
+    } else if (this.normalizeMode === 'none') {
+      this.normalizeFreq = 0;
+    }
     this._renormalizeLoaded();
     this.render();
   }

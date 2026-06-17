@@ -834,6 +834,37 @@ body.panel-collapsed .graph-resize-handle { display: none; }
   text-align: left;
 }
 .graph-popover-section-wide .graph-popover-controls { flex-wrap: nowrap; }
+.graph-popover-section-wide .graph-popover-controls .graph-ctrl-select {
+  flex: 1 1 112px;
+  width: auto;
+}
+.graph-popover-panel .graph-ctrl-number,
+.graph-normalize-custom {
+  width: 72px;
+  min-width: 72px;
+  padding: 0 8px;
+  text-align: right;
+}
+.gcv-btn.selected {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px var(--cyan-dim);
+}
+.gcv-btn.is-hidden {
+  opacity: 0.55;
+}
+.graph-offset-status,
+.graph-normalize-source {
+  display: inline-flex;
+  align-items: center;
+  min-height: 31px;
+  max-width: 150px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .graph-popover-panel #graph-offset-curve { display: none !important; }
 .ui-compact .graph-controls { max-width: min(500px, calc(100% - 210px)); }
 .ui-compact .graph-popover > summary { min-width: 45px; padding-inline: 8px; }
@@ -1112,7 +1143,20 @@ body.panel-collapsed .graph-resize-handle { display: none; }
   font-family: var(--font-mono);
   font-size: 11px;
 }
-.graphic-frequencies-input:focus {
+.graphic-normalize-input {
+  height: 28px;
+  width: 78px;
+  padding: 0 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: right;
+}
+.graphic-frequencies-input:focus,
+.graphic-normalize-input:focus {
   outline: none;
   border-color: var(--cyan);
   box-shadow: 0 0 0 2px var(--cyan-dim);

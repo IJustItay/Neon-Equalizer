@@ -135,11 +135,18 @@
       <button class="graph-ctrl" id="graph-yscale" title="Y-axis: ±30 dB">⇅</button>
       <select class="graph-ctrl graph-ctrl-select" id="graph-normalize-freq" title="Normalize reference frequency">
         <option value="0">No norm</option>
+        <option value="avg">Avg 300-3k</option>
+        <option value="100">100 Hz</option>
+        <option value="250">250 Hz</option>
         <option value="300">300 Hz</option>
         <option value="500">500 Hz</option>
         <option value="1000" selected>1 kHz</option>
         <option value="2000">2 kHz</option>
+        <option value="4000">4 kHz</option>
+        <option value="8000">8 kHz</option>
+        <option value="custom">Custom</option>
       </select>
+      <input class="graph-ctrl graph-ctrl-number graph-normalize-custom" id="graph-normalize-custom" type="number" min="10" max="24000" step="1" value="1000" title="Custom normalization frequency in Hz" aria-label="Custom normalization frequency in Hz">
       <select class="graph-ctrl graph-ctrl-select graph-curve-mode-select" id="graph-baseline-mode" title="Baseline / compensated view">
         <option value="none" selected>Baseline off</option>
         <option value="target">Comp target</option>
@@ -155,9 +162,12 @@
       <button class="graph-ctrl graph-ctrl-wide gcv-btn active" id="gcv-target" data-curve="target" title="Show/hide Target — also selects it for offset">Tgt</button>
       <button class="graph-ctrl graph-ctrl-wide gcv-btn active" id="gcv-corrected" data-curve="corrected" title="Show/hide Corrected — also selects it for offset">Corr</button>
       <button class="graph-ctrl graph-ctrl-wide gcv-btn active" id="gcv-eq" data-curve="eq" title="Show/hide EQ curve — also selects it for offset">EQ</button>
+      <button class="graph-ctrl graph-ctrl-wide" id="graph-curve-hide" title="Hide or show selected curve">Hide</button>
       <button class="graph-ctrl graph-ctrl-wide" id="graph-offset-down" title="Move selected curve down 1 dB">-1</button>
       <button class="graph-ctrl graph-ctrl-wide" id="graph-offset-up" title="Move selected curve up 1 dB">+1</button>
       <button class="graph-ctrl" id="graph-offset-reset" title="Reset selected curve offset">0</button>
+      <span class="graph-offset-status" id="graph-offset-status">FR +0.0</span>
+      <span class="graph-normalize-source" id="graph-normalize-source">Global</span>
       <div class="graph-divider"></div>
       <button class="graph-ctrl graph-ctrl-wide" id="graph-draw-eq" title="Draw a GraphicEQ curve directly on the graph">Draw</button>
       <button class="graph-ctrl graph-ctrl-wide" id="graph-load-meas" title="Upload your own FR measurement file (.txt, .csv, .frd) — loads into graph and FR Tracer">Load FR</button>
@@ -307,7 +317,8 @@
         <button class="btn-ghost" id="btn-graphic-import" title="Import frequency/gain pairs from CSV or text">Import</button>
         <button class="btn-ghost" id="btn-graphic-export" title="Export current Graphic EQ as CSV">Export</button>
         <button class="btn-ghost" id="btn-graphic-invert" title="Invert all Graphic EQ gains">Invert</button>
-        <button class="btn-ghost" id="btn-graphic-normalize" title="Shift response so the loudest band is 0 dB">Normalize</button>
+        <input type="number" id="graphic-normalize-freq" class="graphic-normalize-input" min="10" max="24000" step="1" value="1000" title="GraphicEQ normalization reference frequency in Hz">
+        <button class="btn-ghost" id="btn-graphic-normalize" title="Shift response so the selected reference frequency is 0 dB">Normalize</button>
         <button class="btn-ghost" id="btn-graphic-smooth" title="Smooth adjacent bands">Smooth</button>
         <button class="btn-ghost" id="btn-graphic-reset">Reset All</button>
         <span class="toolbar-hint">0.5 dB steps, double-click a slider to reset one band.</span>
