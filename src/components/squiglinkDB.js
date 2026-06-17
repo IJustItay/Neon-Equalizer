@@ -59,6 +59,74 @@ let _sourceStatus = {};          // { sourceId: 'loaded' | 'error' | 'loading' }
 let _squiglistCache = null;
 const _runtimeConfigCache = new Map();
 
+// ─── Persistent (localStorage) cache ───────────────────────────────────────────
+// The unified DB pulls phone_book.json from 100+ reviewer sites; refetching all
+// of them on every launch is the dominant cost. Persist the assembled DB (and
+// the raw site registry) with a TTL so subsequent launches are instant and the
+// app works offline. Network is still tried first for the lightweight registry.
+const CACHE_PREFIX = 'neon-eq:squig-cache:';
+const SITES_CACHE_KEY = `${CACHE_PREFIX}sites:v1`;
+const DB_CACHE_KEY = `${CACHE_PREFIX}db:v1`;
+const SITES_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
+const DB_TTL_MS = 24 * 60 * 60 * 1000;    // 1 day
+
+function readCache(key, ttlMs) {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { t, v } = JSON.parse(raw);
+    if (!t || Date.now() - t > ttlMs) return null;
+    return v;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(key, value) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(key, JSON.stringify({ t: Date.now(), v: value }));
+  } catch {
+    // Quota exceeded / serialization issues are non-fatal — just skip caching.
+  }
+}
+
+/** Reset the in-memory unified DB so the next loadAllSources() re-fetches. */
+export function resetUnifiedDB() {
+  _unifiedDB = null;
+  _unifiedPromise = null;
+  _sourceStatus = {};
+}
+
+/** Clear persisted Squig caches (e.g. for a manual "refresh database" action). */
+export function clearSquigCache() {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.removeItem(SITES_CACHE_KEY);
+    localStorage.removeItem(DB_CACHE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+// ─── Data-driven measurement-directory overrides ───────────────────────────────
+// Sites that don't use the standard "{folder}data" layout. Add exceptions here
+// instead of special-casing reviewer names in buildSource().
+const DATA_PATH_OVERRIDES = [
+  { usernames: ['silicagel', 'doltonius'], dataSubdir: 'data/phones' },
+  { usernames: ['hana'], urlType: 'labFolder', dataSubdir: 'data/measurements' },
+];
+
+function resolveDataPath(site, folder) {
+  const username = (site.username || '').toLowerCase();
+  for (const override of DATA_PATH_OVERRIDES) {
+    if (override.urlType && override.urlType !== site.urlType) continue;
+    if (override.usernames.includes(username)) return `${folder}${override.dataSubdir}`;
+  }
+  return `${folder}data`;
+}
+
 // ─── Fetch helper with timeout ────────────────────────────────────────────────
 
 async function fetchWithTimeout(url, opts = {}, timeoutMs = 8000) {
@@ -176,15 +244,7 @@ function buildSource(site, db) {
 
   const folder = db.folder || '/';                                // "/" or "/5128/"
   const phoneBookPath = `${folder}data/phone_book.json`;          // always plain
-  let dataPath = `${folder}data`;                                 // measurement dir
-
-  // modernGraphTool path fixups for known non-standard layouts
-  const probe = `${baseUrl}${folder}`;
-  if (probe.includes('silicagel') || probe.includes('doltonius')) {
-    dataPath = `${folder}data/phones`;
-  } else if (probe.includes('/lab/hana/')) {
-    dataPath = `${folder}data/measurements`;
-  }
+  const dataPath = resolveDataPath(site, folder);                 // measurement dir
 
   const typeTag = folder === '/' ? '' : `-${folder.replace(/\//g, '')}`;
   const id = `${site.username}${typeTag}-${db.type}`.toLowerCase();
@@ -213,26 +273,35 @@ export async function loadSquigSites() {
   if (_sitesPromise) return _sitesPromise;
 
   _sitesPromise = (async () => {
+    // Network-first for the lightweight registry; fall back to cache, then
+    // to the hardcoded minimal list.
+    let sites = null;
     try {
       const r = await fetchWithTimeout(`${SQUIGSITES_URL}?cb=${Date.now()}`, {}, 10000);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const sites = await r.json();
+      sites = await r.json();
+      writeCache(SITES_CACHE_KEY, sites);
+    } catch (err) {
+      sites = readCache(SITES_CACHE_KEY, SITES_TTL_MS);
+      console.warn(
+        sites
+          ? `Using cached squigsites.json (${err.message})`
+          : `Failed to load squigsites.json, using fallback list: ${err.message}`
+      );
+    }
 
-      SQUIG_SOURCES.length = 0;
+    SQUIG_SOURCES.length = 0;
+    if (Array.isArray(sites) && sites.length) {
       for (const site of sites) {
         for (const db of (site.dbs || [])) {
           SQUIG_SOURCES.push(buildSource(site, db));
         }
       }
-      _sitesLoaded = true;
-      return SQUIG_SOURCES;
-    } catch (err) {
-      console.warn('Failed to load squigsites.json, using fallback list:', err.message);
-      SQUIG_SOURCES.length = 0;
+    } else {
       SQUIG_SOURCES.push(...buildFallbackSources());
-      _sitesLoaded = true;
-      return SQUIG_SOURCES;
     }
+    _sitesLoaded = true;
+    return SQUIG_SOURCES;
   })();
 
   return _sitesPromise;
@@ -445,6 +514,25 @@ export async function loadAllSources(selectedSourceIds = null, onProgress = null
   const loader = (async () => {
     await loadSquigSites();
 
+    // Cache-first for the full DB: assembling it means fetching 100+
+    // phone_book.json files, so reuse a fresh persisted copy when available.
+    if (!selectedSourceIds) {
+      const cached = readCache(DB_CACHE_KEY, DB_TTL_MS);
+      if (cached && Array.isArray(cached.phones) && cached.phones.length) {
+        _unifiedDB = cached.phones;
+        _sourceStatus = cached.sourceStatus || {};
+        if (onProgress) onProgress(SQUIG_SOURCES.length, SQUIG_SOURCES.length);
+        return {
+          phones: _unifiedDB,
+          sourceStatus: { ..._sourceStatus },
+          totalSources: SQUIG_SOURCES.length,
+          loadedSources: Object.values(_sourceStatus).filter(s => s === 'loaded').length,
+          sources: SQUIG_SOURCES.slice(),
+          fromCache: true,
+        };
+      }
+    }
+
     const sources = selectedSourceIds
       ? SQUIG_SOURCES.filter(s => selectedSourceIds.includes(s.id))
       : SQUIG_SOURCES;
@@ -477,7 +565,10 @@ export async function loadAllSources(selectedSourceIds = null, onProgress = null
       if (!seen.has(key)) { seen.add(key); deduped.push(phone); }
     }
 
-    if (!selectedSourceIds) _unifiedDB = deduped;
+    if (!selectedSourceIds) {
+      _unifiedDB = deduped;
+      writeCache(DB_CACHE_KEY, { phones: deduped, sourceStatus: { ..._sourceStatus } });
+    }
 
     return {
       phones: deduped,

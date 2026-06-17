@@ -772,7 +772,10 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: false,
+      spellcheck: false
     }
   });
 
@@ -809,6 +812,39 @@ function createWindow() {
     event.preventDefault();
     callback(deviceList?.[0]?.deviceId || '');
   });
+
+  // Navigation hardening: keep the main frame on the app itself, and route any
+  // external link (or window.open) to the user's real browser instead of
+  // loading remote content inside a privileged Electron window.
+  const isAppUrl = (target) => {
+    try {
+      const u = new URL(target);
+      if (u.protocol === 'file:') return true;
+      return isDev && (u.host === 'localhost:5173' || u.host === '127.0.0.1:5173');
+    } catch {
+      return false;
+    }
+  };
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url)) return;
+    event.preventDefault();
+    try {
+      const u = new URL(url);
+      if (u.protocol === 'https:' || u.protocol === 'http:') shell.openExternal(url);
+    } catch { /* ignore malformed URLs */ }
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const u = new URL(url);
+      if (u.protocol === 'https:' || u.protocol === 'http:') shell.openExternal(url);
+    } catch { /* ignore malformed URLs */ }
+    return { action: 'deny' };
+  });
+
+  // Block attaching a <webview> with a custom preload or node integration.
+  mainWindow.webContents.on('will-attach-webview', (event) => event.preventDefault());
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
@@ -924,12 +960,38 @@ ipcMain.handle('save-file', async (event, content, options) => {
   }
 });
 
+// Basic SSRF guard for the renderer's fetch proxy: only public web URLs.
+// Blocks loopback/link-local/private ranges so a malicious measurement file or
+// reviewer config can't make the app probe localhost / the LAN / cloud metadata.
+function isDisallowedFetchHost(hostname) {
+  const h = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return true;
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local')) return true;
+  if (h === '::1' || h === '::' || h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true;
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const a = +m[1], b = +m[2];
+    if (a === 0 || a === 127 || a === 10 || a >= 224) return true;       // this-host, loopback, private, multicast/reserved
+    if (a === 192 && b === 168) return true;                              // private
+    if (a === 172 && b >= 16 && b <= 31) return true;                     // private
+    if (a === 169 && b === 254) return true;                              // link-local / cloud metadata
+  }
+  return false;
+}
+
 ipcMain.handle('fetch-url-text', async (event, url, options = {}) => {
   let timeout;
   try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return { ok: false, status: 0, error: 'Only http(s) URLs are allowed' };
+    }
+    if (isDisallowedFetchHost(parsed.hostname)) {
+      return { ok: false, status: 0, error: 'Refusing to fetch a private/loopback address' };
+    }
     const controller = new AbortController();
     timeout = setTimeout(() => controller.abort(), options.timeout || 9000);
-    const response = await fetch(url, {
+    const response = await fetch(parsed.toString(), {
       signal: controller.signal,
       headers: {
         'user-agent': options.userAgent || 'Mozilla/5.0 EqualizerAPOStudio/2.0',
@@ -1170,6 +1232,19 @@ ipcMain.handle('window-maximize', () => {
 ipcMain.handle('window-close', () => mainWindow.hide());
 
 // Preset Management
+
+// Resolve a preset filename to an absolute path that is guaranteed to live
+// directly inside presetsDir. Strips any directory components and rejects
+// traversal so read/delete can't escape the presets folder.
+function resolvePresetPath(name) {
+  const fileName = path.basename(String(name || '')).trim();
+  if (!fileName || fileName === '.' || fileName === '..') return null;
+  if (!/\.txt$/i.test(fileName)) return null;
+  const resolved = path.resolve(presetsDir, fileName);
+  if (path.dirname(resolved) !== path.resolve(presetsDir)) return null;
+  return resolved;
+}
+
 function getPresetsList() {
   if (!fs.existsSync(presetsDir)) return [];
   return fs.readdirSync(presetsDir).filter(f => f.endsWith('.txt')).map(f => ({
@@ -1179,16 +1254,18 @@ function getPresetsList() {
 }
 
 function applyPresetFromTray(fileName) {
-  const p = path.join(presetsDir, fileName);
-  if (fs.existsSync(p)) {
+  const p = resolvePresetPath(fileName);
+  if (p && fs.existsSync(p)) {
       const content = fs.readFileSync(p, 'utf8');
-      writeMainConfigText(content, `Preset applied: ${fileName.replace('.txt', '')}`);
+      writeMainConfigText(content, `Preset applied: ${path.basename(fileName).replace('.txt', '')}`);
   }
 }
 
 ipcMain.handle('save-preset', (event, name, content) => {
-  const safeName = name.replace(/[^a-z0-9א-ת \-]/gi, '_').trim() + '.txt';
-  fs.writeFileSync(path.join(presetsDir, safeName), content, 'utf8');
+  const safeName = String(name || '').replace(/[^a-z0-9א-ת \-]/gi, '_').trim() + '.txt';
+  const target = resolvePresetPath(safeName);
+  if (!target) return false;
+  fs.writeFileSync(target, content, 'utf8');
   return true;
 });
 
@@ -1197,12 +1274,12 @@ ipcMain.handle('get-presets', () => {
 });
 
 ipcMain.handle('read-preset', (event, name) => {
-  const p = path.join(presetsDir, name);
-  return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
+  const p = resolvePresetPath(name);
+  return p && fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
 });
 
 ipcMain.handle('delete-preset', (event, name) => {
-  const p = path.join(presetsDir, name);
-  if (fs.existsSync(p)) fs.unlinkSync(p);
+  const p = resolvePresetPath(name);
+  if (p && fs.existsSync(p)) fs.unlinkSync(p);
   return true;
 });

@@ -156,6 +156,18 @@ export class GraphicEQ {
     this._notify();
   }
 
+  normalizeAtFrequency(frequency = 1000, targetGain = 0) {
+    if (!this.bands.length) return;
+    const freq = this._roundFrequency(Number(frequency) || 1000);
+    if (!Number.isFinite(freq)) return;
+    const current = this._interpolateGain(this.bands, freq);
+    const offset = (Number(targetGain) || 0) - current;
+    if (Math.abs(offset) < 0.001) return;
+    this.bands = this.bands.map(b => ({ ...b, gain: this._roundGain(b.gain + offset) }));
+    this._render();
+    this._notify();
+  }
+
   smooth() {
     if (this.bands.length < 3) return;
     const next = this.bands.map((band, i) => {

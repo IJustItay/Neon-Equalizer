@@ -1,8 +1,8 @@
 node_modules/
 dist/
 release/
-aqua_temp/
 temp_usytrace/
+scratch/
 .agents/
 .claude/
 

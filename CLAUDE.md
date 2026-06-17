@@ -63,7 +63,7 @@ public/
 
 assets/
   icon.svg         Logo source (edit this to change the icon)
-  icon.ico/.png    Generated — do NOT edit manually, run `npm run icons`
+  icon.ico/.png    Generated — do NOT edit manually, run `pnpm run icons`
 
 docs/
   images/          README screenshots
@@ -274,10 +274,16 @@ Three EQ modes exist, each with its own filter set and snapshot store:
 
 ## Build & Release Workflow
 
+> **Package manager: pnpm** (via Corepack). Use `pnpm install` / `pnpm <script>`,
+> not npm. Dependency install/build scripts are gated by
+> `package.json > pnpm.onlyBuiltDependencies` (electron, electron-builder,
+> esbuild, sharp) — add a package there only if it legitimately needs a build
+> step. Run `pnpm test` (vitest) before building.
+
 ### Build
 
 ```bash
-npm run dist        # generates Portable.exe + Setup.exe + Setup.exe.blockmap + latest.yml
+pnpm dist        # generates Portable.exe + Setup.exe + Setup.exe.blockmap + latest.yml
 ```
 
 Output in `release/`:
@@ -378,8 +384,8 @@ autoApplyTimer           // setTimeout handle for auto-save to APO debounce
 - Call `markDirty()` after any EQ state change
 - Use CSS custom properties — never hardcode colors or sizes
 - Use event delegation + `data-*` attributes for dynamically rendered lists
-- Test that the Vite build passes (`npm run build`) before building the exe
-- Bump `package.json` version before `npm run dist`
+- Test that the Vite build passes (`pnpm build`) and tests pass (`pnpm test`) before building the exe
+- Bump `package.json` version before `pnpm dist`
 - Upload `latest.yml` as exactly `latest.yml` to GitHub releases
 
 **Don't:**

@@ -148,6 +148,43 @@ function unique(list) {
   return [...new Set(list.filter(Boolean))];
 }
 
+function parseReviewerNormalization(text) {
+  const cleanType = (value) => {
+    const type = String(value || '').trim().replace(/^['"`]|['"`]$/g, '').toLowerCase();
+    if (type === 'avg' || type === 'average') return 'avg';
+    if (type === 'none' || type === 'off' || type === 'raw') return 'none';
+    return 'hz';
+  };
+  const cleanHz = (value, fallback = 500) => {
+    const hz = Number(value);
+    return Number.isFinite(hz) ? Math.max(10, Math.min(24000, hz)) : fallback;
+  };
+
+  const modern = /\bNORMALIZATION\s*[:=]\s*\{([\s\S]*?)\}/i.exec(text);
+  if (modern) {
+    const body = modern[1];
+    const type = /\bTYPE\s*[:=]\s*(['"`])([^'"`]*)\1/i.exec(body);
+    const hz = /\bHZ_VALUE\s*[:=]\s*([0-9.]+)/i.exec(body);
+    return {
+      mode: cleanType(type?.[2] || 'Hz'),
+      hz: cleanHz(hz?.[1], 500),
+      source: 'modernGraphTool',
+    };
+  }
+
+  const legacyType = /\bdefault_normalization\s*=\s*(['"`])([^'"`]*)\1/i.exec(text);
+  const legacyHz = /\bdefault_norm_hz\s*=\s*([0-9.]+)/i.exec(text);
+  if (legacyType || legacyHz) {
+    return {
+      mode: cleanType(legacyType?.[2] || 'Hz'),
+      hz: cleanHz(legacyHz?.[1], 500),
+      source: 'squiglink',
+    };
+  }
+
+  return null;
+}
+
 function withoutTxt(name) {
   return String(name || '').replace(/\.txt$/i, '');
 }
@@ -176,6 +213,8 @@ async function fetchTextWithDesktopFallback(url, options = {}) {
 
 /** Parse a reviewer's config.js text and return { dir, groups:[{type,files:[{name,file}]}] }. */
 function parseConfigText(text) {
+  const normalization = parseReviewerNormalization(text);
+
   // DIR = "data/"  (also accept ':' in object literals like `DIR: "data/"`)
   let dir = 'data/';
   const dirRe = /\bDIR\s*[:=]\s*(['"`])([^'"`]*)\1/;
@@ -200,7 +239,10 @@ function parseConfigText(text) {
     const slice = extractBalancedArray(text, bracket);
     if (slice) { arr = slice; break; }
   }
-  if (!arr) throw new Error('`targets` array not found in config');
+  if (!arr) {
+    if (normalization) return { dir, targetDir, groups: [], normalization };
+    throw new Error('`targets` array not found in config');
+  }
 
   // Evaluate the array literal in a sandboxed Function. Still untrusted input
   // so we strip the most obvious risk vectors (function/new) — in practice
@@ -237,7 +279,7 @@ function parseConfigText(text) {
     }
     if (files.length) groups.push({ type, files });
   }
-  return { dir, targetDir, groups };
+  return { dir, targetDir, groups, normalization };
 }
 
 /**
@@ -260,7 +302,7 @@ export async function fetchReviewerConfig(source) {
         const text = r.text;
         if (!text || text.length > 512 * 1024) continue;    // sanity cap: 512 kB
         const parsed = parseConfigText(text);
-        if (parsed && parsed.groups.length) return parsed;
+        if (parsed && (parsed.groups.length || parsed.normalization)) return parsed;
       } catch { /* try next */ }
     }
     return null;

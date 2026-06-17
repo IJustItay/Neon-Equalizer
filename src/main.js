@@ -13,6 +13,7 @@ import * as SquigDB from './components/squiglinkDB.js';
 import { AudioPlayer } from './components/audioPlayer.js';
 import { devicePeq } from './components/devicePeq/index.js';
 import { runAutoEQ } from './components/autoEQEngine.js';
+import { runAutoEQAsync } from './workers/autoeqClient.js';
 import {
   TARGET_ADJUSTMENT_DEFAULTS,
   applyTargetAdjustments,
@@ -21,15 +22,14 @@ import {
   normalizeTargetAdjustments,
 } from './components/targetAdjustments.js';
 import * as TargetLoader from './components/targetLoader.js';
+import { appBus, history, createRefresher, REFRESH } from './state/store.js';
 
 // ─── App State ───────────────────────────────────────────────
 let appState = {
   config: createDefaultConfig(),
   configPath: null,
   apoPath: null,
-  dirty: false,
-  undoStack: [],
-  redoStack: []
+  dirty: false
 };
 
 // ─── Components ──────────────────────────────────────────────
@@ -61,7 +61,10 @@ const GITHUB_RELEASES_API = 'https://api.github.com/repos/IJustItay/Neon-Equaliz
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const EQ_SNAPSHOT_KEY = 'neon-equalizer:eq-snapshots:v1';
 const EQ_AB_KEY = 'neon-equalizer:eq-ab:v1';
+const REVIEWER_NORMALIZATION_KEY = 'neon-equalizer:reviewer-normalization:v1';
 const EQ_SNAPSHOT_LIMIT = 24;
+let graphNormalizeScope = null;
+let graphNormalizeSync = null;
 // ─── Target Customizer State ──────────────────────────────────
 let tcState = { ...TARGET_ADJUSTMENT_DEFAULTS };
 let tcBaseTargetData = null; // original target before customizer tweaks
@@ -72,6 +75,7 @@ function publishSquigSourceSelection(source, reason = 'browser') {
   window.dispatchEvent(new CustomEvent('squig-source-selected', {
     detail: { sourceId: selectedSquigSourceId, source: selectedSquigSource, reason }
   }));
+  if (source?.id) applyReviewerNormalization(source).catch(() => {});
   syncGraphFeatureControls();
 }
 
@@ -106,6 +110,8 @@ const CONTROL_HELP = {
   'graph-smoothing': 'Change how much the frequency response graph is smoothed.',
   'graph-yscale': 'Cycle the vertical dB range of the graph.',
   'graph-normalize-freq': 'Choose the frequency used to normalize measurement and target curves.',
+  'graph-normalize-custom': 'Type the exact normalization frequency in Hz.',
+  'graph-normalize-source': 'Shows whether graph normalization came from this reviewer or your manual override.',
   'graph-baseline-mode': 'Compare curves against a target or measurement baseline.',
   'graph-offset-curve': 'Choose which curve the Hide and Offset buttons affect.',
   'graph-curve-hide': 'Hide or show the selected curve.',
@@ -135,6 +141,7 @@ const CONTROL_HELP = {
   'graphic-frequencies-input': 'Enter custom GraphicEQ frequencies.',
   'btn-graphic-apply-frequencies': 'Apply the custom GraphicEQ frequency list.',
   'btn-graphic-add-band': 'Add another GraphicEQ band.',
+  'graphic-normalize-freq': 'Choose which GraphicEQ frequency is shifted to 0 dB.',
   'btn-graphic-import': 'Import GraphicEQ values.',
   'btn-graphic-export': 'Export GraphicEQ values.',
   'btn-graphic-invert': 'Invert GraphicEQ gains above and below 0 dB.',
@@ -465,6 +472,94 @@ function safeLocalStorageGet(key) {
 
 function safeLocalStorageSet(key, value) {
   try { localStorage.setItem(key, value); } catch { /* ignore private storage errors */ }
+}
+
+function formatHzLabel(freq) {
+  const value = Number(freq) || 0;
+  if (value >= 1000) {
+    const khz = value / 1000;
+    return `${Number(khz.toFixed(value >= 10000 ? 0 : 1))} kHz`;
+  }
+  return `${Math.round(value)} Hz`;
+}
+
+function normalizeGraphNormalization(value = {}) {
+  const rawMode = String(value.mode || value.type || 'hz').toLowerCase();
+  const mode = rawMode === 'avg' || rawMode === 'average'
+    ? 'avg'
+    : rawMode === 'none' || rawMode === 'off' || rawMode === 'raw'
+      ? 'none'
+      : 'hz';
+  const rawHz = Number(value.hz ?? value.freq ?? value.HZ_VALUE ?? 500);
+  const hz = Number.isFinite(rawHz) ? Math.max(10, Math.min(24000, rawHz)) : 500;
+  return { mode, hz };
+}
+
+function getReviewerNormalizationOverrides() {
+  try {
+    return JSON.parse(safeLocalStorageGet(REVIEWER_NORMALIZATION_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+}
+
+function setReviewerNormalizationOverride(source, normalization) {
+  if (!source?.id) return;
+  const all = getReviewerNormalizationOverrides();
+  all[source.id] = normalizeGraphNormalization(normalization);
+  safeLocalStorageSet(REVIEWER_NORMALIZATION_KEY, JSON.stringify(all));
+}
+
+function getReviewerNormalizationOverride(source) {
+  if (!source?.id) return null;
+  const value = getReviewerNormalizationOverrides()[source.id];
+  return value ? normalizeGraphNormalization(value) : null;
+}
+
+function currentGraphNormalization() {
+  if (!freqGraph) return { mode: 'hz', hz: 1000 };
+  return normalizeGraphNormalization({
+    mode: freqGraph.normalizeMode || (freqGraph.normalizeFreq > 0 ? 'hz' : 'none'),
+    hz: freqGraph.normalizeFreq || 1000,
+  });
+}
+
+function describeGraphNormalization(value = currentGraphNormalization()) {
+  const norm = normalizeGraphNormalization(value);
+  if (norm.mode === 'none') return 'raw';
+  if (norm.mode === 'avg') return 'avg 300-3k';
+  return formatHzLabel(norm.hz);
+}
+
+function setGraphNormalization(normalization, options = {}) {
+  if (!freqGraph) return;
+  const norm = normalizeGraphNormalization(normalization);
+  freqGraph.setNormalization(norm.mode, norm.hz);
+  if (freqGraph.prefBoundsVisible) refreshPreferenceBounds();
+  if (options.source) graphNormalizeScope = options.source;
+  if (options.saveOverride && graphNormalizeScope?.id) {
+    setReviewerNormalizationOverride(graphNormalizeScope, norm);
+  }
+  graphNormalizeSync?.(norm);
+  updateGraphLegend();
+  if (options.toast) {
+    const name = graphNormalizeScope?.name ? `${graphNormalizeScope.name}: ` : '';
+    showToast(`${name}normalization ${describeGraphNormalization(norm)}`, 'success');
+  }
+}
+
+async function getReviewerNormalization(source) {
+  const override = getReviewerNormalizationOverride(source);
+  if (override) return override;
+  const cfg = await TargetLoader.fetchReviewerConfig(source).catch(() => null);
+  return normalizeGraphNormalization(cfg?.normalization || { mode: 'hz', hz: 500 });
+}
+
+async function applyReviewerNormalization(source, options = {}) {
+  if (!source?.id || !freqGraph) return;
+  graphNormalizeScope = source;
+  const norm = await getReviewerNormalization(source);
+  setGraphNormalization(norm, { source, saveOverride: false, toast: options.toast === true });
 }
 
 // ─── Init ─────────────────────────────────────────────────────
@@ -1032,13 +1127,13 @@ function initGraphToolbarLayout() {
   const viewMenu = makeMenu('View', [
     { label: 'Display', ids: ['graph-pref-bounds', 'graph-delta', 'graph-spectrum'] },
     { label: 'Shape', ids: ['graph-smoothing', 'graph-yscale'] },
-    { label: 'Norm', ids: ['graph-normalize-freq'], className: 'graph-popover-section-wide' },
+    { label: 'Norm', ids: ['graph-normalize-freq', 'graph-normalize-custom', 'graph-normalize-source'], className: 'graph-popover-section-wide' },
     { label: 'Baseline', ids: ['graph-baseline-mode'], className: 'graph-popover-section-wide' },
     { label: 'Zoom', ids: ['graph-zoom-in', 'graph-zoom-out'] },
   ]);
   const curveMenu = makeMenu('Curve', [
     { label: 'Visible', ids: ['gcv-measurement', 'gcv-target', 'gcv-corrected', 'gcv-eq'] },
-    { label: 'Offset', ids: ['graph-offset-curve', 'graph-offset-down', 'graph-offset-up', 'graph-offset-reset'] },
+    { label: 'Offset', ids: ['graph-offset-curve', 'graph-curve-hide', 'graph-offset-down', 'graph-offset-up', 'graph-offset-reset', 'graph-offset-status'] },
   ]);
   const actions = makeGroup('actions', ['graph-draw-eq', 'graph-load-meas', 'graph-screenshot', 'graph-reset']);
   toolbar.replaceChildren(primary, viewMenu, curveMenu, actions);
@@ -1163,12 +1258,63 @@ function initGraph() {
 
   // ── Normalization reference frequency ────────────────────────
   const normSel = document.getElementById('graph-normalize-freq');
-  normSel.addEventListener('change', (e) => {
-    const v = parseInt(e.target.value, 10) || 0;
-    freqGraph.setNormalizeFreq(v);
-    if (freqGraph.prefBoundsVisible) refreshPreferenceBounds();
-    normSel.title = v === 0 ? 'No normalization' : `Normalized at ${v} Hz`;
+  const normInput = document.getElementById('graph-normalize-custom');
+  const normSource = document.getElementById('graph-normalize-source');
+  const normalizeOptionValues = () => [...(normSel?.options || [])].map(o => o.value);
+  const syncNormalizeControls = (normalization = currentGraphNormalization()) => {
+    const norm = normalizeGraphNormalization(normalization);
+    const label = describeGraphNormalization(norm);
+    if (normInput) {
+      normInput.value = String(Math.round(norm.hz || 1000));
+      normInput.style.display = norm.mode === 'hz' && !normalizeOptionValues().includes(String(Math.round(norm.hz))) ? '' : 'none';
+    }
+    if (normSel) {
+      if (norm.mode === 'none') normSel.value = '0';
+      else if (norm.mode === 'avg') normSel.value = 'avg';
+      else {
+        const hzText = String(Math.round(norm.hz));
+        normSel.value = normalizeOptionValues().includes(hzText) ? hzText : 'custom';
+      }
+      normSel.title = norm.mode === 'none' ? 'No normalization' : `Normalized at ${label}`;
+    }
+    if (normSource) {
+      normSource.textContent = graphNormalizeScope?.name ? `${graphNormalizeScope.name}: ${label}` : `Global: ${label}`;
+      normSource.title = graphNormalizeScope?.name
+        ? 'Changing normalization here stores an override for this reviewer.'
+        : 'Global graph normalization';
+    }
+  };
+  graphNormalizeSync = syncNormalizeControls;
+  const applyNormalizeSelection = (normalization) => setGraphNormalization(normalization, {
+    source: graphNormalizeScope,
+    saveOverride: !!graphNormalizeScope?.id,
+    toast: !!graphNormalizeScope?.id,
   });
+  normSel?.addEventListener('change', (e) => {
+    const value = e.target.value;
+    if (value === 'custom') {
+      normInput.style.display = '';
+      normInput.focus();
+      normInput.select?.();
+      applyNormalizeSelection({ mode: 'hz', hz: Number(normInput.value) || 1000 });
+      return;
+    }
+    if (value === 'avg') {
+      applyNormalizeSelection({ mode: 'avg', hz: Number(normInput?.value) || 500 });
+      return;
+    }
+    const v = parseInt(value, 10) || 0;
+    applyNormalizeSelection(v > 0 ? { mode: 'hz', hz: v } : { mode: 'none', hz: 0 });
+  });
+  normInput?.addEventListener('change', () => {
+    const hz = Math.max(10, Math.min(24000, Number(normInput.value) || 1000));
+    normInput.value = String(Math.round(hz));
+    applyNormalizeSelection({ mode: 'hz', hz });
+  });
+  normInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') normInput.blur();
+  });
+  syncNormalizeControls(currentGraphNormalization());
 
   // ── Screenshot ───────────────────────────────────────────────
   const baselineSel = document.getElementById('graph-baseline-mode');
@@ -1177,28 +1323,40 @@ function initGraph() {
   const offsetDown = document.getElementById('graph-offset-down');
   const offsetUp = document.getElementById('graph-offset-up');
   const offsetReset = document.getElementById('graph-offset-reset');
+  const offsetStatus = document.getElementById('graph-offset-status');
   const curveLabels = {
     measurement: 'Measurement',
     target: 'Target',
     corrected: 'Corrected',
     eq: 'EQ curve',
   };
+  const curveShortLabels = { measurement: 'FR', target: 'Tgt', corrected: 'Corr', eq: 'EQ' };
   const syncCurveDisplayControls = () => {
+    const selectedCurve = curveSel?.value || 'measurement';
     ['measurement', 'target', 'corrected', 'eq'].forEach(curve => {
       const btn = document.getElementById(`gcv-${curve}`);
       if (btn) {
         const visible = freqGraph.curveVisibility[curve] !== false;
         btn.classList.toggle('active', visible);
+        btn.classList.toggle('selected', curve === selectedCurve);
+        btn.classList.toggle('is-hidden', !visible);
         btn.title = `${visible ? 'Hide' : 'Show'} ${curveLabels[curve] || curve} — click to toggle; also selects for offset`;
       }
     });
     if (curveSel) {
-      const curve = curveSel.value;
+      const curve = selectedCurve;
       const label = curveLabels[curve] || curve;
       const offset = freqGraph.curveOffsets[curve] || 0;
+      const visible = freqGraph.curveVisibility[curve] !== false;
+      if (hideBtn) {
+        hideBtn.textContent = visible ? 'Hide' : 'Show';
+        hideBtn.classList.toggle('active', !visible);
+        hideBtn.title = `${visible ? 'Hide' : 'Show'} ${label}`;
+      }
       if (offsetDown) offsetDown.title = `Move ${label} down 1 dB (${offset >= 0 ? '+' : ''}${offset.toFixed(1)} dB)`;
       if (offsetUp) offsetUp.title = `Move ${label} up 1 dB (${offset >= 0 ? '+' : ''}${offset.toFixed(1)} dB)`;
       if (offsetReset) offsetReset.title = `Reset ${label} offset`;
+      if (offsetStatus) offsetStatus.textContent = `${curveShortLabels[curve] || label} ${offset >= 0 ? '+' : ''}${offset.toFixed(1)}`;
     }
     baselineSel?.classList.toggle('active', freqGraph.baselineMode !== 'none');
   };
@@ -1211,24 +1369,30 @@ function initGraph() {
   document.querySelectorAll('.gcv-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const curve = btn.dataset.curve;
-      freqGraph.toggleCurveVisible(curve);
       if (curveSel) curveSel.value = curve;
       syncCurveDisplayControls();
       updateGraphLegend();
     });
   });
+  hideBtn?.addEventListener('click', () => {
+    const curve = curveSel?.value || 'measurement';
+    const visible = freqGraph.toggleCurveVisible(curve);
+    syncCurveDisplayControls();
+    updateGraphLegend();
+    showToast(`${curveLabels[curve] || curve} ${visible ? 'shown' : 'hidden'}`, 'info');
+  });
   offsetDown?.addEventListener('click', () => {
-    freqGraph.adjustCurveOffset(curveSel.value, -1);
+    freqGraph.adjustCurveOffset(curveSel?.value || 'measurement', -1);
     syncCurveDisplayControls();
     updateGraphLegend();
   });
   offsetUp?.addEventListener('click', () => {
-    freqGraph.adjustCurveOffset(curveSel.value, 1);
+    freqGraph.adjustCurveOffset(curveSel?.value || 'measurement', 1);
     syncCurveDisplayControls();
     updateGraphLegend();
   });
   offsetReset?.addEventListener('click', () => {
-    freqGraph.setCurveOffset(curveSel.value, 0);
+    freqGraph.setCurveOffset(curveSel?.value || 'measurement', 0);
     syncCurveDisplayControls();
     updateGraphLegend();
   });
@@ -1246,10 +1410,8 @@ function initGraph() {
     smoothBtn.title = 'FR Smoothing: None';
     smoothBtn.classList.remove('active');
     yScaleBtn.title = 'Y-axis: +/-30 dB';
-    if (normSel) {
-      normSel.value = '1000';
-      normSel.title = 'Normalized at 1000 Hz';
-    }
+    graphNormalizeScope = null;
+    syncNormalizeControls({ mode: 'hz', hz: 1000 });
     if (baselineSel) baselineSel.value = 'none';
     if (curveSel) curveSel.value = 'measurement';
     freqGraph.setDrawMode(false);
@@ -1395,6 +1557,13 @@ function updateGraphLegend() {
       const label = freqGraph.baselineMode === 'target' ? 'Compensated to target' : 'Compensated to measurement';
       items.push({ color: '#a3e635', label, style: 'dashed' });
     }
+    items.push({
+      color: '#38bdf8',
+      label: graphNormalizeScope?.name
+        ? `Norm: ${graphNormalizeScope.name} ${describeGraphNormalization()}`
+        : `Norm: ${describeGraphNormalization()}`,
+      style: 'band',
+    });
     if (freqGraph.prefBoundsVisible) items.push({ color: '#fbbf24', label: 'Pref. Bounds', style: 'dashed' });
     legend.innerHTML = items.map(i => {
       let swatch;
@@ -2072,7 +2241,8 @@ function initParametricEQ() {
     pushUndo();
     appState.config.filters = [];
     appState.config.preamp = 0;
-    refreshUI();
+    // Only the parametric panel, graph, preamp readout and count changed.
+    refresh(REFRESH.PARAMETRIC, REFRESH.GRAPH, REFRESH.PREAMP, REFRESH.COUNT);
     markDirty();
     audioPlayer?.refreshEQ();
     showToast('Parametric EQ reset', 'success');
@@ -2208,7 +2378,13 @@ function initGraphicEQ() {
     runGraphicEQAction(() => graphicEQ.invert(), 'Graphic EQ inverted');
   });
   document.getElementById('btn-graphic-normalize')?.addEventListener('click', () => {
-    runGraphicEQAction(() => graphicEQ.normalize(), 'Graphic EQ normalized');
+    const input = document.getElementById('graphic-normalize-freq');
+    const frequency = Math.max(10, Math.min(24000, Number(input?.value) || 1000));
+    if (input) input.value = String(Math.round(frequency));
+    runGraphicEQAction(
+      () => graphicEQ.normalizeAtFrequency(frequency, 0),
+      `Graphic EQ normalized at ${formatHzLabel(frequency)}`
+    );
   });
   document.getElementById('btn-graphic-reset').addEventListener('click', () => {
     runGraphicEQAction(() => graphicEQ.reset(), 'Graphic EQ reset');
@@ -3066,11 +3242,29 @@ function initAutoEQControls() {
         ? tcBaseTargetData
         : freqGraph.getRawTargetData();
       const targetForAutoEQ = applyTargetAdjustments(baseTargetForAutoEQ, tcState);
-      const { filters, preamp, alignment } = runAutoEQ(
-        measurementForAutoEQ,
-        targetForAutoEQ,
-        autoEQOptions
-      );
+      let result;
+      try {
+        // Run off the UI thread; report progress in the status line.
+        result = await runAutoEQAsync(
+          measurementForAutoEQ,
+          targetForAutoEQ,
+          autoEQOptions,
+          {
+            onProgress: (done, total, stage) => {
+              if (stage === 'refining' || stage === 'done') {
+                setStatus('Refining filters…', 'loading');
+              } else {
+                setStatus(`Optimizing… ${done}/${total} filters`, 'loading');
+              }
+            },
+          }
+        );
+      } catch (workerErr) {
+        // Worker unavailable/failed — fall back to synchronous optimization.
+        console.warn('AutoEQ worker failed, running on main thread:', workerErr);
+        result = runAutoEQ(measurementForAutoEQ, targetForAutoEQ, autoEQOptions);
+      }
+      const { filters, preamp, alignment } = result;
 
       pushUndo();
       appState.config.filters = appState.config.filters.filter(f => f.isEffect);
@@ -3178,32 +3372,52 @@ function initSquiglinkDBPanel() {
     }
   };
 
-  // 2. Initial Load — discover all sources, then fetch every phone_book in parallel.
-  resultsEl.innerHTML = '<div class="squig-db-loading">Discovering squiglink sites…</div>';
-  dbBadge.textContent = 'Loading…';
-
+  // 2. Load — discover all sources, then fetch every phone_book in parallel.
   const onProgress = (done, total) => {
     resultsEl.innerHTML = `<div class="squig-db-loading">Loading databases… ${done}/${total}</div>`;
     dbBadge.textContent = `${done}/${total} sources`;
   };
 
-  SquigDB.loadAllSources(null, onProgress).then(result => {
-    dbFull = result.phones;
-    sourcesFull = result.sources || [];
-    populateSourceFilter(result.sources);
-    const loaded = result.loadedSources;
-    const total = result.totalSources;
-    dbBadge.textContent = `${dbFull.length} items · ${loaded}/${total} sources`;
-    renderResults();
-    if (loaded < total) {
-      showToast(`Loaded ${loaded}/${total} squiglink databases (${dbFull.length} items)`, 'warning');
-    } else {
-      showToast(`All ${total} squiglink databases loaded (${dbFull.length} items)`, 'success');
+  // Shared by the initial load and the manual "↻ Refresh" button. force=true
+  // drops the persisted + in-memory caches so the DB is re-downloaded fresh.
+  const loadDatabase = ({ force = false } = {}) => {
+    if (force) {
+      SquigDB.clearSquigCache();
+      SquigDB.resetUnifiedDB();
     }
-  }).catch(err => {
-    dbBadge.textContent = 'Error loading';
-    resultsEl.innerHTML = `<div class="result-item"><span style="color:var(--red)">Failed to load DB: ${escapeHtml(err.message)}</span></div>`;
-  });
+    resultsEl.innerHTML = `<div class="squig-db-loading">${force ? 'Refreshing database…' : 'Discovering squiglink sites…'}</div>`;
+    dbBadge.textContent = force ? 'Refreshing…' : 'Loading…';
+    return SquigDB.loadAllSources(null, onProgress).then(result => {
+      dbFull = result.phones;
+      sourcesFull = result.sources || [];
+      populateSourceFilter(result.sources);
+      const loaded = result.loadedSources;
+      const total = result.totalSources;
+      const cacheNote = result.fromCache ? ' · cached' : '';
+      dbBadge.textContent = `${dbFull.length} items · ${loaded}/${total} sources${cacheNote}`;
+      renderResults();
+      if (force) {
+        showToast(`Database refreshed — ${dbFull.length} items from ${loaded}/${total} sources`, 'success');
+      } else if (loaded < total) {
+        showToast(`Loaded ${loaded}/${total} squiglink databases (${dbFull.length} items)`, 'warning');
+      } else {
+        showToast(`All ${total} squiglink databases loaded (${dbFull.length} items)`, 'success');
+      }
+    }).catch(err => {
+      dbBadge.textContent = 'Error loading';
+      resultsEl.innerHTML = `<div class="result-item"><span style="color:var(--red)">Failed to load DB: ${escapeHtml(err.message)}</span></div>`;
+    });
+  };
+
+  loadDatabase();
+
+  const btnRefreshDb = document.getElementById('btn-squig-refresh');
+  if (btnRefreshDb) {
+    btnRefreshDb.addEventListener('click', () => {
+      btnRefreshDb.disabled = true;
+      loadDatabase({ force: true }).finally(() => { btnRefreshDb.disabled = false; });
+    });
+  }
 
   // 3. Render Results
   const renderResults = () => {
@@ -4296,22 +4510,23 @@ async function selectFile(options) {
 // UNDO / REDO
 // ═══════════════════════════════════════════════════════════
 function pushUndo() {
-  appState.undoStack.push(JSON.stringify(appState.config));
-  if (appState.undoStack.length > 50) appState.undoStack.shift();
-  appState.redoStack = [];
+  history.push(JSON.stringify(appState.config));
+  appBus.emit('history');
 }
 function undo() {
-  if (!appState.undoStack.length) return;
-  appState.redoStack.push(JSON.stringify(appState.config));
-  appState.config = JSON.parse(appState.undoStack.pop());
+  const snapshot = history.undo(JSON.stringify(appState.config));
+  if (snapshot === undefined) return;
+  appState.config = JSON.parse(snapshot);
   refreshUI();
+  appBus.emit('history');
   showToast('Undo', 'info');
 }
 function redo() {
-  if (!appState.redoStack.length) return;
-  appState.undoStack.push(JSON.stringify(appState.config));
-  appState.config = JSON.parse(appState.redoStack.pop());
+  const snapshot = history.redo(JSON.stringify(appState.config));
+  if (snapshot === undefined) return;
+  appState.config = JSON.parse(snapshot);
   refreshUI();
+  appBus.emit('history');
   showToast('Redo', 'info');
 }
 
@@ -4332,31 +4547,52 @@ function applyAutoPreamp() {
 // ═══════════════════════════════════════════════════════════
 // REFRESH UI
 // ═══════════════════════════════════════════════════════════
+// Per-scope renderers. Each entry redraws exactly one part of the UI so callers
+// can do a surgical refresh (e.g. refresh('parametric','graph','count')) instead
+// of re-rendering everything on every edit. Defined in the same order the old
+// monolithic refreshUI() ran them, so refresh('all') is behavior-identical.
+const REFRESHERS = {
+  [REFRESH.PARAMETRIC]: () => parametricEQ.setFilters(appState.config.filters),
+  [REFRESH.GRAPH]: () => {
+    freqGraph.setFilters(appState.config.filters);
+    freqGraph.setPreamp(appState.config.preamp || 0);
+    updateGraphLegend();
+  },
+  [REFRESH.DEVICE]: () => renderDeviceSelector(appState.config.device || 'all'),
+  [REFRESH.PREAMP]: () => {
+    const preamp = appState.config.preamp || 0;
+    document.getElementById('preamp-slider').value = preamp;
+    document.getElementById('preamp-value').textContent =
+      `${preamp >= 0 ? '+' : ''}${preamp.toFixed(1)} dB`;
+  },
+  [REFRESH.GRAPHIC]: () => {
+    if (appState.config.graphicEQ) {
+      graphicEQ.setBands(appState.config.graphicEQ.bands, appState.config.graphicEQ.enabled);
+      freqGraph.setGraphicEQ(graphicEQ.getConfig());
+    } else {
+      freqGraph.setGraphicEQ(null);
+    }
+    syncGraphicEQControls();
+  },
+  [REFRESH.ROUTING]: () => {
+    renderCopyRoutes();
+    renderDelays();
+  },
+  [REFRESH.EFFECTS]: () => {
+    renderVSTPlugins();
+    renderLoudnessCorrection();
+  },
+  [REFRESH.INCLUDES]: () => renderIncludes(),
+  [REFRESH.COUNT]: () => updateFilterCount(),
+  [REFRESH.RAW]: () => updateRawConfigEditor(),
+};
+
+// Scoped dispatcher: refresh('parametric','graph') or refresh('all') / refresh().
+const refresh = createRefresher(REFRESHERS, appBus);
+
+// Full re-render (config replaced wholesale — load, undo/redo, reset).
 function refreshUI() {
-  parametricEQ.setFilters(appState.config.filters);
-  freqGraph.setFilters(appState.config.filters);
-  freqGraph.setPreamp(appState.config.preamp || 0);
-  updateGraphLegend();
-  renderDeviceSelector(appState.config.device || 'all');
-
-  document.getElementById('preamp-slider').value = appState.config.preamp || 0;
-  document.getElementById('preamp-value').textContent =
-    `${(appState.config.preamp||0) >= 0 ? '+' : ''}${(appState.config.preamp||0).toFixed(1)} dB`;
-
-  if (appState.config.graphicEQ) {
-    graphicEQ.setBands(appState.config.graphicEQ.bands, appState.config.graphicEQ.enabled);
-    freqGraph.setGraphicEQ(graphicEQ.getConfig());
-  } else {
-    freqGraph.setGraphicEQ(null);
-  }
-  syncGraphicEQControls();
-  renderCopyRoutes();
-  renderDelays();
-  renderVSTPlugins();
-  renderLoudnessCorrection();
-  renderIncludes();
-  updateFilterCount();
-  updateRawConfigEditor();
+  refresh(REFRESH.ALL);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -4364,6 +4600,7 @@ function refreshUI() {
 // ═══════════════════════════════════════════════════════════
 function markDirty() {
   appState.dirty = true;
+  appBus.emit('dirty', true);
   if (getAutoSaveAPOEnabled()) {
     scheduleAutoApply();
   } else {
@@ -4539,6 +4776,7 @@ function initTargetPicker() {
     if (activeSquigSource) {
       selectedSquigSource = activeSquigSource;
       selectedSquigSourceId = activeSquigSourceId;
+      applyReviewerNormalization(activeSquigSource).catch(() => {});
     }
     if (sourceSel.value === 'squig') {
       if (allowCrossSource?.checked) await populateAllReviewerTargets(reason);
@@ -4555,7 +4793,7 @@ function initTargetPicker() {
       ? `${Math.round(first)}-${Math.round(last)} Hz`
       : 'unknown range';
     const source = target.sourceName || target.category || 'target';
-    return `${displayName} loaded from ${source}: ${points} points, ${range}. Graph is normalized at the selected reference frequency.`;
+    return `${displayName} loaded from ${source}: ${points} points, ${range}. Graph normalization: ${describeGraphNormalization()}.`;
   };
 
   const applyTarget = (target, displayName) => {
@@ -4925,6 +5163,7 @@ function initTargetPicker() {
       try {
         const targetFile = parsedReviewerTarget?.file || value;
         const t = await TargetLoader.loadReviewerTarget(site, targetFile);
+        await applyReviewerNormalization(site);
         if (
           seq !== targetLoadSeq ||
           sourceSel.value !== src ||

@@ -1,6 +1,6 @@
 {
   "name": "neon-equalizer",
-  "version": "2.1.1",
+  "version": "2.3.0",
   "description": "Professional Neon Equalizer GUI for Equalizer APO with AutoEQ and Squiglink integration",
   "keywords": [
     "equalizer-apo",
@@ -23,6 +23,11 @@
     "eq-presets"
   ],
   "author": "Itay",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
   "homepage": "https://github.com/IJustItay/Neon-Equalizer#readme",
   "repository": {
     "type": "git",
@@ -36,8 +41,10 @@
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "icons": "node scripts/generate-icons.mjs",
     "build": "vite build",
-    "dist": "npm run icons && vite build && electron-builder --win",
-    "preview": "vite preview"
+    "dist": "node scripts/generate-icons.mjs && vite build && electron-builder --win",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "build": {
     "appId": "com.neonequalizer.app",
@@ -97,10 +104,22 @@
     "electron-builder": "^26.8.1",
     "sharp": "^0.34.5",
     "vite": "^6.0.0",
+    "vitest": "^3.2.6",
     "wait-on": "^8.0.0"
   },
   "dependencies": {
     "adm-zip": "^0.5.17",
     "electron-updater": "^6.8.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-builder",
+      "esbuild",
+      "sharp"
+    ],
+    "overrides": {
+      "shell-quote@<1.8.4": ">=1.8.4"
+    }
   }
 }

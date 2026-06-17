@@ -6,7 +6,13 @@
  * The optimizer matches a measurement to a target by iteratively choosing
  * shelf + peaking biquad filters that minimize weighted RMS error, then
  * running coordinate-descent refinement and pruning ineffective bands.
+ *
+ * Biquad coefficients and magnitude come from the shared DSP module
+ * (src/dsp/biquad.js) so the optimizer targets exactly the curve the graph
+ * draws.
  */
+
+import { biquadCoeffs, magnitudeDbTrig, precomputeTrig } from '../dsp/biquad.js';
 
 export class AutoEQEngine {
   constructor() {
@@ -23,98 +29,33 @@ export class AutoEQEngine {
     };
   }
 
-  // ── Biquad coefficient builders (RBJ cookbook) ────────────────
-  _lowshelf(freq, q, gain) {
-    freq = freq / this.config.DefaultSampleRate;
-    freq = Math.max(1e-6, Math.min(freq, 1));
-    q = Math.max(1e-4, Math.min(q, 1000));
-    gain = Math.max(-40, Math.min(gain, 40));
-
-    const w0 = 2 * Math.PI * freq;
-    const sin = Math.sin(w0);
-    const cos = Math.cos(w0);
-    const a = Math.pow(10, gain / 40);
-    const alpha = sin / (2 * q);
-    const alphamod = (2 * Math.sqrt(a) * alpha) || 0;
-
-    const a0 = ((a + 1) + (a - 1) * cos + alphamod);
-    const a1 = -2 * ((a - 1) + (a + 1) * cos);
-    const a2 = ((a + 1) + (a - 1) * cos - alphamod);
-    const b0 = a * ((a + 1) - (a - 1) * cos + alphamod);
-    const b1 = 2 * a * ((a - 1) - (a + 1) * cos);
-    const b2 = a * ((a + 1) - (a - 1) * cos - alphamod);
-
-    return [1.0, a1 / a0, a2 / a0, b0 / a0, b1 / a0, b2 / a0];
-  }
-
-  _highshelf(freq, q, gain) {
-    freq = freq / this.config.DefaultSampleRate;
-    freq = Math.max(1e-6, Math.min(freq, 1));
-    q = Math.max(1e-4, Math.min(q, 1000));
-    gain = Math.max(-40, Math.min(gain, 40));
-
-    const w0 = 2 * Math.PI * freq;
-    const sin = Math.sin(w0);
-    const cos = Math.cos(w0);
-    const a = Math.pow(10, gain / 40);
-    const alpha = sin / (2 * q);
-    const alphamod = (2 * Math.sqrt(a) * alpha) || 0;
-
-    const a0 = ((a + 1) - (a - 1) * cos + alphamod);
-    const a1 = 2 * ((a - 1) - (a + 1) * cos);
-    const a2 = ((a + 1) - (a - 1) * cos - alphamod);
-    const b0 = a * ((a + 1) + (a - 1) * cos + alphamod);
-    const b1 = -2 * a * ((a - 1) + (a + 1) * cos);
-    const b2 = a * ((a + 1) + (a - 1) * cos - alphamod);
-
-    return [1.0, a1 / a0, a2 / a0, b0 / a0, b1 / a0, b2 / a0];
-  }
-
-  _peaking(freq, q, gain) {
-    freq = freq / this.config.DefaultSampleRate;
-    freq = Math.max(1e-6, Math.min(freq, 1));
-    q = Math.max(1e-4, Math.min(q, 1000));
-    gain = Math.max(-40, Math.min(gain, 40));
-
-    const w0 = 2 * Math.PI * freq;
-    const sin = Math.sin(w0);
-    const cos = Math.cos(w0);
-    const alpha = sin / (2 * q);
-    const a = Math.pow(10, gain / 40);
-
-    const a0 = 1 + alpha / a;
-    const a1 = -2 * cos;
-    const a2 = 1 - alpha / a;
-    const b0 = 1 + alpha * a;
-    const b1 = -2 * cos;
-    const b2 = 1 - alpha * a;
-
-    return [1.0, a1 / a0, a2 / a0, b0 / a0, b1 / a0, b2 / a0];
-  }
-
+  // ── Biquad coefficients via shared DSP module ─────────────────
   _filtersToCoeffs(filters) {
+    const sr = this.config.DefaultSampleRate;
     return filters.map(f => {
       if (!f.freq || f.gain === undefined || f.gain === null || !f.q) return null;
-      if (f.type === 'LSQ') return this._lowshelf(f.freq, f.q, f.gain);
-      if (f.type === 'HSQ') return this._highshelf(f.freq, f.q, f.gain);
-      if (f.type === 'PK') return this._peaking(f.freq, f.q, f.gain);
-      return null;
-    }).filter(f => f);
+      return biquadCoeffs({ type: f.type, frequency: f.freq, q: f.q, gain: f.gain }, sr);
+    }).filter(Boolean);
+  }
+
+  // Per-frequency trig is identical across every candidate filter and across
+  // the thousands of applyFilters() calls in coordinate descent, so cache it
+  // keyed on the (fixed) frequency grid.
+  _getTrig(freqs) {
+    const key = `${freqs.length}:${freqs[0]}:${freqs[freqs.length - 1]}`;
+    if (this._trigKey === key && this._trig) return this._trig;
+    this._trig = precomputeTrig(freqs, this.config.DefaultSampleRate);
+    this._trigKey = key;
+    return this._trig;
   }
 
   _calculateGains(freqs, coeffs) {
     const gains = new Array(freqs.length).fill(0);
+    const { cw, c2w, sw, s2w } = this._getTrig(freqs);
     for (let i = 0; i < coeffs.length; ++i) {
-      const [a0, a1, a2, b0, b1, b2] = coeffs[i];
+      const c = coeffs[i];
       for (let j = 0; j < freqs.length; ++j) {
-        const w = 2 * Math.PI * freqs[j] / this.config.DefaultSampleRate;
-        const phi = 4 * Math.pow(Math.sin(w / 2), 2);
-        const c = (
-          10 * Math.log10(Math.pow(b0 + b1 + b2, 2) +
-            (b0 * b2 * phi - (b1 * (b0 + b2) + 4 * b0 * b2)) * phi) -
-          10 * Math.log10(Math.pow(a0 + a1 + a2, 2) +
-            (a0 * a2 * phi - (a1 * (a0 + a2) + 4 * a0 * a2)) * phi));
-        gains[j] += c;
+        gains[j] += magnitudeDbTrig(c, cw[j], c2w[j], sw[j], s2w[j]);
       }
     }
     return gains;
@@ -467,7 +408,7 @@ export class AutoEQEngine {
     return filters.sort((a, b) => a.freq - b.freq);
   }
 
-  _iterativeBatchOptimization(fr, frTarget, initialFilters, maxFilters) {
+  _iterativeBatchOptimization(fr, frTarget, initialFilters, maxFilters, onProgress = null) {
     let filters = [...initialFilters];
     let currentFR = this.applyFilters(fr, filters);
 
@@ -485,6 +426,7 @@ export class AutoEQEngine {
         filters = this._optimize(fr, frTarget, filters, i, true);
       }
       currentFR = this.applyFilters(fr, filters);
+      onProgress?.(filters.length, maxFilters, 'optimizing');
       if (this._calculateWeightedError(currentFR, frTarget) < 0.5) break;
     }
     return filters;
@@ -526,6 +468,7 @@ export class AutoEQEngine {
     const qRange = options.qRange || this.config.OptimizeQRange;
     const gainRange = options.gainRange || this.config.OptimizeGainRange;
     const useShelfFilter = options.useShelfFilter !== false;
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
 
     this.config.AutoEQRange = freqRange;
     this.config.OptimizeQRange = qRange;
@@ -554,12 +497,14 @@ export class AutoEQEngine {
       }
     }
 
-    let all = this._iterativeBatchOptimization(fr, frTarget, initialFilters, maxFilters);
+    let all = this._iterativeBatchOptimization(fr, frTarget, initialFilters, maxFilters, onProgress);
+    onProgress?.(maxFilters, maxFilters, 'refining');
     for (let i = 0; i < this.config.OptimizeDeltas.length; i++) {
       all = this._optimize(fr, frTarget, all, i);
       all = this._optimize(fr, frTarget, all, i, true);
     }
     all = this._pruneIneffectiveFilters(fr, frTarget, all);
+    onProgress?.(maxFilters, maxFilters, 'done');
 
     return all.map(f => ({
       type: f.type,

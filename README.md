@@ -77,34 +77,44 @@ Requirements:
 - Node.js 20 or newer
 - Equalizer APO for real system-wide EQ output
 
+This project uses **pnpm** (via Corepack). Enable it once with `corepack enable`
+(on Windows, run that terminal as Administrator the first time, or use
+`corepack pnpm ...`).
+
 Install dependencies:
 
 ```powershell
-npm install
+pnpm install
 ```
 
 Run the web UI and Electron app in development:
 
 ```powershell
-npm run dev
+pnpm dev
 ```
 
 Generate icon assets:
 
 ```powershell
-npm run icons
+pnpm run icons
 ```
 
 Build the web bundle:
 
 ```powershell
-npm run build
+pnpm build
+```
+
+Run the test suite:
+
+```powershell
+pnpm test
 ```
 
 Create the portable Windows executable:
 
 ```powershell
-npm run dist
+pnpm dist
 ```
 
 The outputs are written to `release/Neon-Equalizer-2.1.0-Portable.exe` and `release/Neon-Equalizer-2.1.0-Setup.exe`.

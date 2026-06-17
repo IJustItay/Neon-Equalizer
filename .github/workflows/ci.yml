@@ -20,23 +20,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: pnpm
 
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies (advisory)
+        run: pnpm audit --audit-level=high
+        continue-on-error: true
 
       - name: Check Electron shell syntax
         run: node --check electron/main.js && node --check electron/preload.js
 
+      - name: Run tests
+        run: pnpm test
+
       - name: Generate icons
-        run: npm run icons
+        run: pnpm run icons
 
       - name: Build renderer
-        run: npm run build
+        run: pnpm build
 
       - name: Windows audio endpoint smoke check
         if: startsWith(matrix.os, 'windows')

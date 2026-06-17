@@ -3,6 +3,8 @@
  * Interactive Canvas-based visualization with draggable filter nodes
  */
 
+import { filterGainDb } from '../dsp/biquad.js';
+
 const MIN_FREQ = 20;
 const MAX_FREQ = 20000;
 const MIN_DB = -30;
@@ -35,6 +37,9 @@ export class FrequencyGraph {
 
     // Smoothing (1/N octave). 'none', '1/48', '1/24', '1/12', '1/6', '1/3'
     this.smoothing = 'none';
+    // Normalization mode: hz, avg, or none. Avg matches modernGraphTool's
+    // 300-3000 Hz reference window.
+    this.normalizeMode = 'hz';
     // Normalization reference frequency (0 = disabled / keep raw alignment)
     this.normalizeFreq = 1000;
     // Show measurement − target delta as a semi-transparent band centred at 0 dB.
@@ -165,6 +170,7 @@ export class FrequencyGraph {
     this.dbRange = { min: MIN_DB, max: MAX_DB };
     this.showIndividual = false;
     this.smoothing = 'none';
+    this.normalizeMode = 'hz';
     this.normalizeFreq = 1000;
     this._renormalizeLoaded();
     this.showDelta = false;
@@ -306,141 +312,11 @@ export class FrequencyGraph {
     this.render();
   }
 
-  // Calculate biquad filter response at frequency
+  // Calculate biquad filter response at frequency.
+  // Delegates to the shared DSP module (src/dsp/biquad.js) so the drawn curve
+  // and the AutoEQ optimizer use identical math.
   _calcFilterResponse(filter, freq, sampleRate = 48000) {
-    if (!filter.enabled || !filter.frequency) return 0;
-
-    const w0 = 2 * Math.PI * filter.frequency / sampleRate;
-    const w = 2 * Math.PI * freq / sampleRate;
-    const Q = filter.q || 0.707;
-    const gain = filter.gain || 0;
-    const A = Math.pow(10, gain / 40);
-
-    let alpha;
-    if (filter.bw) {
-      alpha = Math.sin(w0) * Math.sinh(Math.log(2) / 2 * filter.bw * w0 / Math.sin(w0));
-    } else {
-      alpha = Math.sin(w0) / (2 * Q);
-    }
-
-    let b0, b1, b2, a0, a1, a2;
-
-    switch (filter.type) {
-      case 'PK':
-      case 'PEQ':
-      case 'Modal':
-        b0 = 1 + alpha * A;
-        b1 = -2 * Math.cos(w0);
-        b2 = 1 - alpha * A;
-        a0 = 1 + alpha / A;
-        a1 = -2 * Math.cos(w0);
-        a2 = 1 - alpha / A;
-        break;
-
-      case 'LP':
-      case 'LPQ':
-        b0 = (1 - Math.cos(w0)) / 2;
-        b1 = 1 - Math.cos(w0);
-        b2 = (1 - Math.cos(w0)) / 2;
-        a0 = 1 + alpha;
-        a1 = -2 * Math.cos(w0);
-        a2 = 1 - alpha;
-        break;
-
-      case 'HP':
-      case 'HPQ':
-        b0 = (1 + Math.cos(w0)) / 2;
-        b1 = -(1 + Math.cos(w0));
-        b2 = (1 + Math.cos(w0)) / 2;
-        a0 = 1 + alpha;
-        a1 = -2 * Math.cos(w0);
-        a2 = 1 - alpha;
-        break;
-
-      case 'BP':
-        b0 = alpha;
-        b1 = 0;
-        b2 = -alpha;
-        a0 = 1 + alpha;
-        a1 = -2 * Math.cos(w0);
-        a2 = 1 - alpha;
-        break;
-
-      case 'NO':
-        b0 = 1;
-        b1 = -2 * Math.cos(w0);
-        b2 = 1;
-        a0 = 1 + alpha;
-        a1 = -2 * Math.cos(w0);
-        a2 = 1 - alpha;
-        break;
-
-      case 'AP':
-        b0 = 1 - alpha;
-        b1 = -2 * Math.cos(w0);
-        b2 = 1 + alpha;
-        a0 = 1 + alpha;
-        a1 = -2 * Math.cos(w0);
-        a2 = 1 - alpha;
-        break;
-
-      case 'LS':
-      case 'LSC':
-      case 'LS 6dB':
-      case 'LS 12dB': {
-        const sq = 2 * Math.sqrt(A) * alpha;
-        b0 = A * ((A + 1) - (A - 1) * Math.cos(w0) + sq);
-        b1 = 2 * A * ((A - 1) - (A + 1) * Math.cos(w0));
-        b2 = A * ((A + 1) - (A - 1) * Math.cos(w0) - sq);
-        a0 = (A + 1) + (A - 1) * Math.cos(w0) + sq;
-        a1 = -2 * ((A - 1) + (A + 1) * Math.cos(w0));
-        a2 = (A + 1) + (A - 1) * Math.cos(w0) - sq;
-        break;
-      }
-
-      case 'HS':
-      case 'HSC':
-      case 'HS 6dB':
-      case 'HS 12dB': {
-        const sqh = 2 * Math.sqrt(A) * alpha;
-        b0 = A * ((A + 1) + (A - 1) * Math.cos(w0) + sqh);
-        b1 = -2 * A * ((A - 1) + (A + 1) * Math.cos(w0));
-        b2 = A * ((A + 1) + (A - 1) * Math.cos(w0) - sqh);
-        a0 = (A + 1) - (A - 1) * Math.cos(w0) + sqh;
-        a1 = 2 * ((A - 1) - (A + 1) * Math.cos(w0));
-        a2 = (A + 1) - (A - 1) * Math.cos(w0) - sqh;
-        break;
-      }
-
-      default:
-        return 0;
-    }
-
-    // Calculate magnitude response at frequency w
-    const phi = Math.pow(Math.sin(w / 2), 2);
-    const numR = Math.pow(b0 / a0 + b1 / a0 + b2 / a0, 2) -
-                 4 * (b0 * b1 / (a0 * a0) + 4 * b0 * b2 / (a0 * a0) + b1 * b2 / (a0 * a0)) * phi +
-                 16 * b0 * b2 / (a0 * a0) * phi * phi;
-    const denR = Math.pow(1 + a1 / a0 + a2 / a0, 2) -
-                 4 * (a1 / a0 + 4 * a2 / a0 + a1 * a2 / (a0 * a0)) * phi +
-                 16 * a2 / a0 * phi * phi;
-
-    // Use direct z-transform evaluation for more accuracy
-    const cosw = Math.cos(w);
-    const cos2w = Math.cos(2 * w);
-    const sinw = Math.sin(w);
-    const sin2w = Math.sin(2 * w);
-
-    const numReal = b0 / a0 + (b1 / a0) * cosw + (b2 / a0) * cos2w;
-    const numImag = -(b1 / a0) * sinw - (b2 / a0) * sin2w;
-    const denReal = 1 + (a1 / a0) * cosw + (a2 / a0) * cos2w;
-    const denImag = -(a1 / a0) * sinw - (a2 / a0) * sin2w;
-
-    const numMag = Math.sqrt(numReal * numReal + numImag * numImag);
-    const denMag = Math.sqrt(denReal * denReal + denImag * denImag);
-
-    if (denMag === 0) return 0;
-    return 20 * Math.log10(numMag / denMag);
+    return filterGainDb(filter, freq, sampleRate);
   }
 
   // Calculate combined response at frequency.
@@ -655,10 +531,21 @@ export class FrequencyGraph {
     return this.prefBoundsVisible;
   }
 
-  // Normalizes an array of SPL values to 0 dB at the configured reference frequency.
+  // Normalizes SPL to the configured graph reference.
   normalizeSplData(data) {
     data = this._sanitizeCurve(data);
     if (!data || !data.freq || !data.freq.length) return data;
+    if (this.normalizeMode === 'avg') {
+      const values = data.spl.filter((_, i) => data.freq[i] >= 300 && data.freq[i] <= 3000);
+      if (values.length < 3) return { freq: data.freq, spl: data.spl.slice() };
+      const avg = values.reduce((sum, value) => sum + value, 0) / values.length;
+      return {
+        freq: data.freq,
+        spl: data.spl.map(s => s - avg),
+      };
+    }
+    if (this.normalizeMode === 'none') return { freq: data.freq, spl: data.spl.slice() };
+
     const ref = this.normalizeFreq;
     if (!ref || ref <= 0) return { freq: data.freq, spl: data.spl.slice() };
 
@@ -731,6 +618,19 @@ export class FrequencyGraph {
 
   setNormalizeFreq(freq) {
     this.normalizeFreq = Math.max(0, +freq || 0);
+    this.normalizeMode = this.normalizeFreq > 0 ? 'hz' : 'none';
+    this._renormalizeLoaded();
+    this.render();
+  }
+
+  setNormalization(mode = 'hz', freq = this.normalizeFreq) {
+    const nextMode = String(mode || 'hz').toLowerCase();
+    this.normalizeMode = ['hz', 'avg', 'none'].includes(nextMode) ? nextMode : 'hz';
+    if (this.normalizeMode === 'hz') {
+      this.normalizeFreq = Math.max(10, Math.min(24000, +freq || 1000));
+    } else if (this.normalizeMode === 'none') {
+      this.normalizeFreq = 0;
+    }
     this._renormalizeLoaded();
     this.render();
   }
