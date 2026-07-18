@@ -1,6 +1,11 @@
 const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, globalShortcut, nativeImage, clipboard, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const dns = require('dns');
+const http = require('http');
+const https = require('https');
+const net = require('net');
+const { pathToFileURL } = require('url');
 const { execFileSync, execSync } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const AdmZip = require('adm-zip');
@@ -17,7 +22,9 @@ if (!gotSingleInstanceLock) {
 let mainWindow;
 let tray = null;
 let trayMenuRefreshTimer = null;
-const isDev = !app.isPackaged;
+// NEON_EQ_LOAD_DIST=1 loads the built dist/ (with production CSP) in an
+// unpackaged run — lets us test packaged-renderer behavior without electron-builder.
+const isDev = !app.isPackaged && process.env.NEON_EQ_LOAD_DIST !== '1';
 const presetsDir = path.join(app.getPath('userData'), 'presets');
 const backupDir = path.join(app.getPath('documents'), 'Neon Equalizer Backups');
 const updateState = {
@@ -407,6 +414,45 @@ function isTrustedAppOrigin(origin = '') {
     origin.startsWith('file://') ||
     origin.startsWith('http://localhost:5173') ||
     origin.startsWith('http://127.0.0.1:5173');
+}
+
+// The ONE local document allowed in the privileged window (issue #20): the
+// packaged renderer. Any other file: URL navigated into the window would
+// receive the preload bridges — and with them read/write access to disk.
+const APP_INDEX_URL = pathToFileURL(path.join(__dirname, '..', 'dist', 'index.html')).href.toLowerCase();
+
+function isAppUrl(target) {
+  try {
+    const u = new URL(target);
+    if (u.protocol === 'file:') {
+      const bare = u.href.split(/[?#]/)[0].toLowerCase();
+      return bare === APP_INDEX_URL;
+    }
+    return isDev && (u.host === 'localhost:5173' || u.host === '127.0.0.1:5173');
+  } catch {
+    return false;
+  }
+}
+
+/** True when the IPC came from our own top-level renderer frame. */
+function isAppSender(event) {
+  try {
+    const frame = event.senderFrame;
+    if (!frame || frame.parent) return false;
+    return isAppUrl(frame.url);
+  } catch {
+    return false;
+  }
+}
+
+/** ipcMain.handle wrapper that rejects calls from unauthorized frames. */
+function handleApp(channel, fn) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!isAppSender(event)) {
+      throw new Error(`Unauthorized IPC sender for '${channel}'`);
+    }
+    return fn(event, ...args);
+  });
 }
 
 function listWindowsAudioDevices() {
@@ -813,19 +859,10 @@ function createWindow() {
     callback(deviceList?.[0]?.deviceId || '');
   });
 
-  // Navigation hardening: keep the main frame on the app itself, and route any
+  // Navigation hardening: keep the main frame on the app itself (exact
+  // packaged index.html / dev origin only — see isAppUrl), and route any
   // external link (or window.open) to the user's real browser instead of
   // loading remote content inside a privileged Electron window.
-  const isAppUrl = (target) => {
-    try {
-      const u = new URL(target);
-      if (u.protocol === 'file:') return true;
-      return isDev && (u.host === 'localhost:5173' || u.host === '127.0.0.1:5173');
-    } catch {
-      return false;
-    }
-  };
-
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (isAppUrl(url)) return;
     event.preventDefault();
@@ -902,13 +939,39 @@ app.on('activate', () => {
 });
 
 // IPC Handlers
-ipcMain.handle('get-apo-path', () => {
+
+// Config-path allowlist (issue #20): the renderer may only read/write files it
+// obtained through a main-process dialog, plus anything inside the detected
+// Equalizer APO config directory. Arbitrary path strings are refused.
+const approvedConfigFiles = new Set();
+const approvedConfigDirs = new Set();
+
+function approveConfigPath(p) {
+  if (p) approvedConfigFiles.add(path.resolve(String(p)).toLowerCase());
+}
+function approveConfigDir(d) {
+  if (d) approvedConfigDirs.add(path.resolve(String(d)).toLowerCase());
+}
+function isApprovedConfigPath(p) {
+  if (!p) return false;
+  const resolved = path.resolve(String(p)).toLowerCase();
+  if (approvedConfigFiles.has(resolved)) return true;
+  const apoDir = getAPOConfigPath();
+  const dirs = [...approvedConfigDirs];
+  if (apoDir) dirs.push(path.resolve(apoDir).toLowerCase());
+  return dirs.some(dir => resolved === dir || resolved.startsWith(dir + path.sep));
+}
+
+handleApp('get-apo-path', () => {
   return getAPOConfigPath();
 });
 
-ipcMain.handle('read-config', async (event, filePath) => {
+handleApp('read-config', async (event, filePath) => {
   try {
     const configPath = filePath || path.join(getAPOConfigPath() || '', 'config.txt');
+    if (!isApprovedConfigPath(configPath)) {
+      return { error: 'Path not allowed. Pick the file or folder through the app first.' };
+    }
     if (!fs.existsSync(configPath)) {
       return { error: 'Config file not found', path: configPath };
     }
@@ -919,9 +982,12 @@ ipcMain.handle('read-config', async (event, filePath) => {
   }
 });
 
-ipcMain.handle('write-config', async (event, filePath, content) => {
+handleApp('write-config', async (event, filePath, content) => {
   try {
     const configPath = filePath || path.join(getAPOConfigPath() || '', 'config.txt');
+    if (!isApprovedConfigPath(configPath)) {
+      return { error: 'Path not allowed. Pick the file or folder through the app first.' };
+    }
     fs.writeFileSync(configPath, content, 'utf8');
     return { success: true, path: configPath };
   } catch (e) {
@@ -929,7 +995,7 @@ ipcMain.handle('write-config', async (event, filePath, content) => {
   }
 });
 
-ipcMain.handle('select-file', async (event, options) => {
+handleApp('select-file', async (event, options) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: options?.filters || [
@@ -939,10 +1005,11 @@ ipcMain.handle('select-file', async (event, options) => {
     ]
   });
   if (result.canceled) return null;
+  approveConfigPath(result.filePaths[0]);
   return result.filePaths[0];
 });
 
-ipcMain.handle('save-file', async (event, content, options) => {
+handleApp('save-file', async (event, content, options) => {
   try {
     const result = await dialog.showSaveDialog(mainWindow, {
       title: options?.title || 'Save file',
@@ -953,6 +1020,7 @@ ipcMain.handle('save-file', async (event, content, options) => {
       ]
     });
     if (result.canceled || !result.filePath) return { canceled: true };
+    approveConfigPath(result.filePath);
     fs.writeFileSync(result.filePath, content, 'utf8');
     return { success: true, path: result.filePath };
   } catch (e) {
@@ -960,61 +1028,239 @@ ipcMain.handle('save-file', async (event, content, options) => {
   }
 });
 
-// Basic SSRF guard for the renderer's fetch proxy: only public web URLs.
-// Blocks loopback/link-local/private ranges so a malicious measurement file or
-// reviewer config can't make the app probe localhost / the LAN / cloud metadata.
+// ─── SSRF-guarded fetch proxy (issue #21) ───────────────────────────────────
+//
+// The renderer's fetch proxy must only ever reach the public internet: a
+// malicious measurement file or reviewer config must not be able to probe
+// localhost services, the LAN, or cloud metadata. The guard therefore:
+//   - validates the hostname textually (fast reject),
+//   - resolves DNS and rejects private/reserved answers AT CONNECT TIME via a
+//     custom `lookup` (immune to rebinding between check and connect),
+//   - follows redirects manually, re-validating every hop,
+//   - caps redirect count and response size.
+
+/** True when an IP literal (v4 or v6, incl. IPv4-mapped) is not publicly routable. */
+function isPrivateIp(address) {
+  let ip = String(address || '').toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  if (!ip) return true;
+  const mapped = ip.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (mapped) ip = mapped[1];
+
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 0 || a === 10 || a === 127 || a >= 224) return true;   // this-host, private, loopback, multicast/reserved
+    if (a === 100 && b >= 64 && b <= 127) return true;               // CGNAT 100.64/10
+    if (a === 169 && b === 254) return true;                         // link-local / cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true;                // private
+    if (a === 192 && b === 0) return true;                           // IETF protocol assignments 192.0.0/24
+    if (a === 192 && b === 168) return true;                         // private
+    if (a === 198 && (b === 18 || b === 19)) return true;            // benchmarking 198.18/15
+    return false;
+  }
+  if (net.isIPv6(ip)) {
+    if (ip === '::' || ip === '::1') return true;                    // unspecified, loopback
+    const head = ip.split(':')[0];
+    if (/^fe[89ab]/.test(head)) return true;                         // link-local fe80::/10
+    if (/^f[cd]/.test(head)) return true;                            // unique-local fc00::/7
+    if (/^ff/.test(head)) return true;                               // multicast ff00::/8
+    if (ip.startsWith('64:ff9b')) return true;                       // NAT64 well-known prefix
+    return false;
+  }
+  return true;  // not an IP literal — callers must resolve first
+}
+
+/** Textual pre-check for public-web fetches: obvious local names and IP literals. */
 function isDisallowedFetchHost(hostname) {
   const h = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
   if (!h) return true;
   if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local')) return true;
-  if (h === '::1' || h === '::' || h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd')) return true;
-  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (m) {
-    const a = +m[1], b = +m[2];
-    if (a === 0 || a === 127 || a === 10 || a >= 224) return true;       // this-host, loopback, private, multicast/reserved
-    if (a === 192 && b === 168) return true;                              // private
-    if (a === 172 && b >= 16 && b <= 31) return true;                     // private
-    if (a === 169 && b === 254) return true;                              // link-local / cloud metadata
-  }
+  if (net.isIP(h.replace(/%.*$/, ''))) return isPrivateIp(h);
   return false;
 }
 
-ipcMain.handle('fetch-url-text', async (event, url, options = {}) => {
-  let timeout;
-  try {
-    const parsed = new URL(url);
+/** dns.lookup wrapper that fails the connection if ANY answer is non-public. */
+function publicOnlyLookup(hostname, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  dns.lookup(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) return callback(err);
+    const list = Array.isArray(addresses) ? addresses : [addresses];
+    if (!list.length) return callback(new Error(`No DNS answers for ${hostname}`));
+    for (const entry of list) {
+      if (isPrivateIp(entry.address)) {
+        return callback(new Error(`Refusing to connect: ${hostname} resolves to a private address`));
+      }
+    }
+    if (options.all) return callback(null, list);
+    callback(null, list[0].address, list[0].family);
+  });
+}
+
+const FETCH_MAX_REDIRECTS = 5;
+const FETCH_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Fetch text over http(s) with per-connection destination validation.
+ * `lookupImpl` decides which destinations are acceptable (public-only for the
+ * web proxy, LAN-only for the device connector); it runs at socket-connect
+ * time, so a hostname cannot re-resolve to a blocked address after validation.
+ */
+function guardedHttpText(urlString, { headers = {}, timeout = 9000, method = 'GET', body = null, lookupImpl = publicOnlyLookup, validateUrl = null, maxBytes = FETCH_MAX_BYTES } = {}, redirectsLeft = FETCH_MAX_REDIRECTS) {
+  return new Promise((resolve) => {
+    let parsed;
+    try {
+      parsed = new URL(urlString);
+    } catch {
+      return resolve({ ok: false, status: 0, error: 'Invalid URL' });
+    }
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-      return { ok: false, status: 0, error: 'Only http(s) URLs are allowed' };
+      return resolve({ ok: false, status: 0, error: 'Only http(s) URLs are allowed' });
     }
-    if (isDisallowedFetchHost(parsed.hostname)) {
-      return { ok: false, status: 0, error: 'Refusing to fetch a private/loopback address' };
+    const validationError = validateUrl ? validateUrl(parsed) : null;
+    if (validationError) {
+      return resolve({ ok: false, status: 0, error: validationError });
     }
-    const controller = new AbortController();
-    timeout = setTimeout(() => controller.abort(), options.timeout || 9000);
-    const response = await fetch(parsed.toString(), {
-      signal: controller.signal,
+
+    const mod = parsed.protocol === 'https:' ? https : http;
+    const req = mod.request(parsed, {
+      method,
+      headers,
+      lookup: lookupImpl,
+      timeout,
+      // No shared keep-alive agent: a reused socket would skip `lookup`, and
+      // the public-web and LAN-only policies must never share connections.
+      agent: false,
+    }, (res) => {
+      const status = res.statusCode || 0;
+      if ([301, 302, 303, 307, 308].includes(status) && res.headers.location) {
+        res.resume();
+        if (redirectsLeft <= 0) {
+          return resolve({ ok: false, status: 0, error: 'Too many redirects' });
+        }
+        let nextUrl;
+        try {
+          nextUrl = new URL(res.headers.location, parsed).toString();
+        } catch {
+          return resolve({ ok: false, status: 0, error: 'Invalid redirect target' });
+        }
+        const nextMethod = status === 303 ? 'GET' : method;
+        return resolve(guardedHttpText(nextUrl, { headers, timeout, method: nextMethod, body: nextMethod === 'GET' ? null : body, lookupImpl, validateUrl, maxBytes }, redirectsLeft - 1));
+      }
+
+      const chunks = [];
+      let received = 0;
+      res.on('data', (chunk) => {
+        received += chunk.length;
+        if (received > maxBytes) {
+          req.destroy();
+          return resolve({ ok: false, status: 0, error: 'Response too large' });
+        }
+        chunks.push(chunk);
+      });
+      res.on('end', () => {
+        resolve({ ok: status >= 200 && status < 300, status, text: Buffer.concat(chunks).toString('utf8') });
+      });
+      res.on('error', (err) => resolve({ ok: false, status: 0, error: err.message }));
+    });
+
+    req.on('timeout', () => req.destroy(new Error('Request timed out')));
+    req.on('error', (err) => resolve({ ok: false, status: 0, error: err.message }));
+    if (body !== null && body !== undefined) req.write(body);
+    req.end();
+  });
+}
+
+handleApp('fetch-url-text', async (event, url, options = {}) => {
+  try {
+    return await guardedHttpText(String(url || ''), {
+      timeout: Math.min(30000, Math.max(1000, Number(options.timeout) || 9000)),
       headers: {
         'user-agent': options.userAgent || 'Mozilla/5.0 EqualizerAPOStudio/2.0',
         'accept': 'text/plain,text/csv,application/javascript,*/*',
         ...(options.headers || {})
       },
-      redirect: 'follow'
+      lookupImpl: publicOnlyLookup,
+      validateUrl: (parsed) =>
+        isDisallowedFetchHost(parsed.hostname)
+          ? 'Refusing to fetch a private/loopback address'
+          : null,
     });
-    const text = await response.text();
-    return { ok: response.ok, status: response.status, text };
   } catch (e) {
     return { ok: false, status: 0, error: e.message };
-  } finally {
-    if (timeout) clearTimeout(timeout);
   }
 });
 
-ipcMain.handle('list-audio-devices', async () => ({
+// ─── LAN device connector transport (issue #16) ─────────────────────────────
+//
+// Network PEQ devices (WiiM/Linkplay, Luxsin) speak plain HTTP on the LAN,
+// which the production CSP correctly blocks from the renderer, and the public
+// fetch proxy correctly refuses. This dedicated channel is the inverse of the
+// proxy: it ONLY talks to the user-entered host, and ONLY when that host
+// resolves to a LAN (private/link-local) address — never to the public
+// internet, and never to loopback services on this machine.
+
+function lanOnlyLookup(hostname, options, callback) {
+  if (typeof options === 'function') { callback = options; options = {}; }
+  dns.lookup(hostname, { ...options, all: true }, (err, addresses) => {
+    if (err) return callback(err);
+    const list = Array.isArray(addresses) ? addresses : [addresses];
+    if (!list.length) return callback(new Error(`No DNS answers for ${hostname}`));
+    for (const entry of list) {
+      const ip = String(entry.address || '');
+      const isLoopback = ip === '::1' || /^127\./.test(ip.replace(/^::ffff:/, ''));
+      if (isLoopback || !isPrivateIp(ip)) {
+        return callback(new Error(`Refusing device connection: ${hostname} is not a LAN address`));
+      }
+    }
+    if (options.all) return callback(null, list);
+    callback(null, list[0].address, list[0].family);
+  });
+}
+
+handleApp('lan-device-request', async (event, request = {}) => {
+  try {
+    const host = String(request.host || '').trim();
+    if (!host || host.length > 253 || /[\s/\\@#?]/.test(host)) {
+      return { ok: false, status: 0, error: 'Invalid device host' };
+    }
+    const pathPart = String(request.path || '/');
+    if (!pathPart.startsWith('/') || pathPart.length > 2048) {
+      return { ok: false, status: 0, error: 'Invalid device path' };
+    }
+    const method = String(request.method || 'GET').toUpperCase();
+    if (method !== 'GET' && method !== 'POST') {
+      return { ok: false, status: 0, error: 'Only GET and POST are allowed' };
+    }
+    const hostNoPort = host.replace(/^\[|\]$/g, '').replace(/:\d+$/, '').toLowerCase();
+    const headers = {};
+    if (request.contentType) headers['content-type'] = String(request.contentType);
+    return await guardedHttpText(`http://${host}${pathPart}`, {
+      method,
+      body: typeof request.body === 'string' ? request.body : null,
+      headers,
+      timeout: Math.min(20000, Math.max(1000, Number(request.timeout) || 8000)),
+      lookupImpl: lanOnlyLookup,
+      maxBytes: 1024 * 1024,
+      validateUrl: (parsed) => {
+        // Redirects (and the initial URL) must stay on the selected host.
+        const h = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+        if (h !== hostNoPort) return 'Device redirected away from the selected host';
+        if (net.isIP(h) && (!isPrivateIp(h) || /^127\./.test(h) || h === '::1')) {
+          return 'Device host must be a LAN address';
+        }
+        return null;
+      },
+    });
+  } catch (e) {
+    return { ok: false, status: 0, error: e.message };
+  }
+});
+
+handleApp('list-audio-devices', async () => ({
   ok: true,
   devices: listWindowsAudioDevices()
 }));
 
-ipcMain.handle('capture-region-image', async (event, rect = {}, options = {}) => {
+handleApp('capture-region-image', async (event, rect = {}, options = {}) => {
   try {
     if (!mainWindow || mainWindow.isDestroyed()) throw new Error('Main window is not available');
     const viewport = {
@@ -1067,7 +1313,7 @@ ipcMain.handle('capture-region-image', async (event, rect = {}, options = {}) =>
   }
 });
 
-ipcMain.handle('open-external-url', async (event, url) => {
+handleApp('open-external-url', async (event, url) => {
   try {
     const parsed = new URL(url);
     if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('Only web URLs can be opened');
@@ -1078,9 +1324,9 @@ ipcMain.handle('open-external-url', async (event, url) => {
   }
 });
 
-ipcMain.handle('updater-get-state', () => ({ ...updateState }));
+handleApp('updater-get-state', () => ({ ...updateState }));
 
-ipcMain.handle('updater-check', async () => {
+handleApp('updater-check', async () => {
   if (!updateState.canAutoInstall) {
     return publishUpdateState({
       status: updateState.isPortable ? 'portable' : 'manual',
@@ -1104,7 +1350,7 @@ ipcMain.handle('updater-check', async () => {
   return { ...updateState };
 });
 
-ipcMain.handle('updater-download', async () => {
+handleApp('updater-download', async () => {
   if (!updateState.canAutoInstall) {
     return publishUpdateState({
       status: updateState.isPortable ? 'portable' : 'manual',
@@ -1128,7 +1374,7 @@ ipcMain.handle('updater-download', async () => {
   return { ...updateState };
 });
 
-ipcMain.handle('updater-install', async () => {
+handleApp('updater-install', async () => {
   if (!updateState.canAutoInstall || updateState.status !== 'downloaded') {
     return publishUpdateState({
       status: updateState.status,
@@ -1153,7 +1399,7 @@ ipcMain.handle('updater-install', async () => {
   return { ...updateState };
 });
 
-ipcMain.handle('user-data-backup', async () => {
+handleApp('user-data-backup', async () => {
   try {
     const result = await dialog.showSaveDialog(mainWindow, {
       title: 'Save Neon Equalizer user data backup',
@@ -1167,7 +1413,7 @@ ipcMain.handle('user-data-backup', async () => {
   }
 });
 
-ipcMain.handle('user-data-restore', async () => {
+handleApp('user-data-restore', async () => {
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Restore Neon Equalizer user data backup',
@@ -1188,25 +1434,27 @@ ipcMain.handle('user-data-restore', async () => {
   }
 });
 
-ipcMain.handle('user-data-open-backups', async () => {
+handleApp('user-data-open-backups', async () => {
   fs.mkdirSync(backupDir, { recursive: true });
   const error = await shell.openPath(backupDir);
   return error ? { success: false, error } : { success: true, path: backupDir };
 });
 
-ipcMain.handle('select-config-dir', async () => {
+handleApp('select-config-dir', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory'],
     title: 'Select Equalizer APO Config Directory'
   });
   if (result.canceled) return null;
+  approveConfigDir(result.filePaths[0]);
   return result.filePaths[0];
 });
 
-ipcMain.handle('list-config-files', async (event, dirPath) => {
+handleApp('list-config-files', async (event, dirPath) => {
   try {
     const configDir = dirPath || getAPOConfigPath();
     if (!configDir || !fs.existsSync(configDir)) return [];
+    if (!isApprovedConfigPath(configDir)) return [];
     const files = fs.readdirSync(configDir)
       .filter(f => f.endsWith('.txt') || f.endsWith('.cfg'))
       .map(f => ({
@@ -1221,15 +1469,15 @@ ipcMain.handle('list-config-files', async (event, dirPath) => {
 });
 
 // Window controls
-ipcMain.handle('window-minimize', () => mainWindow.minimize());
-ipcMain.handle('window-maximize', () => {
+handleApp('window-minimize', () => mainWindow.minimize());
+handleApp('window-maximize', () => {
   if (mainWindow.isMaximized()) {
     mainWindow.unmaximize();
   } else {
     mainWindow.maximize();
   }
 });
-ipcMain.handle('window-close', () => mainWindow.hide());
+handleApp('window-close', () => mainWindow.hide());
 
 // Preset Management
 
@@ -1261,7 +1509,7 @@ function applyPresetFromTray(fileName) {
   }
 }
 
-ipcMain.handle('save-preset', (event, name, content) => {
+handleApp('save-preset', (event, name, content) => {
   const safeName = String(name || '').replace(/[^a-z0-9א-ת \-]/gi, '_').trim() + '.txt';
   const target = resolvePresetPath(safeName);
   if (!target) return false;
@@ -1269,16 +1517,16 @@ ipcMain.handle('save-preset', (event, name, content) => {
   return true;
 });
 
-ipcMain.handle('get-presets', () => {
+handleApp('get-presets', () => {
   return getPresetsList();
 });
 
-ipcMain.handle('read-preset', (event, name) => {
+handleApp('read-preset', (event, name) => {
   const p = resolvePresetPath(name);
   return p && fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
 });
 
-ipcMain.handle('delete-preset', (event, name) => {
+handleApp('delete-preset', (event, name) => {
   const p = resolvePresetPath(name);
   if (p && fs.existsSync(p)) fs.unlinkSync(p);
   return true;

@@ -48,7 +48,20 @@ export function biquadCoeffs(
   const family = canonicalFilterFamily(type);
   if (!family || !frequency) return null;
 
-  const w0 = (2 * Math.PI * frequency) / sampleRate;
+  // Domain guards (issue #24): reject non-finite inputs and clamp the
+  // frequency strictly below Nyquist — at exactly Nyquist sin(w0) = 0 and the
+  // BW-form alpha divides by it, producing NaN coefficients that poison every
+  // downstream sum (graph curves, peak detection, auto-preamp).
+  if (!Number.isFinite(sampleRate) || sampleRate <= 0) return null;
+  if (!Number.isFinite(frequency) || frequency <= 0) return null;
+  if (!Number.isFinite(gain)) return null;
+  if (q !== null && q !== undefined && (!Number.isFinite(q) || q < 0)) return null;
+  if (bw !== null && bw !== undefined && !Number.isFinite(bw)) return null;
+
+  const nyquist = sampleRate / 2;
+  const f = Math.min(frequency, nyquist * (1 - 1e-6));
+
+  const w0 = (2 * Math.PI * f) / sampleRate;
   const cw = Math.cos(w0);
   const sw = Math.sin(w0);
   const A = Math.pow(10, (gain || 0) / 40);
@@ -60,6 +73,7 @@ export function biquadCoeffs(
   } else {
     alpha = sw / (2 * Qv);
   }
+  if (!Number.isFinite(alpha)) return null;
 
   let b0, b1, b2, a0, a1, a2;
   switch (family) {
@@ -111,7 +125,14 @@ export function biquadCoeffs(
       return null;
   }
 
-  return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
+  const out = { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
+  // Every coefficient must be finite — otherwise callers treat the filter as
+  // unsupported (skipped) instead of propagating NaN through response sums.
+  if (!Number.isFinite(out.b0) || !Number.isFinite(out.b1) || !Number.isFinite(out.b2) ||
+      !Number.isFinite(out.a1) || !Number.isFinite(out.a2)) {
+    return null;
+  }
+  return out;
 }
 
 /**

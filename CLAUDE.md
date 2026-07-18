@@ -57,6 +57,16 @@ src/
   config/
     parser.js      Parses Equalizer APO config.txt text → JS object
     serializer.js  Serializes JS config object → Equalizer APO config.txt text
+  utils/
+    dataLiteral.js Data-only JS literal parser (reviewer config.js targets) — NEVER
+                   replace with eval/Function: the production CSP blocks eval and
+                   the input is remote/untrusted
+  workers/
+    autoeqClient.js  Promise wrapper around the AutoEQ Web Worker (sync fallback)
+    autoeqWorker.js  Off-thread AutoEQ optimizer
+  dsp/
+    biquad.js      Shared biquad math for graph + optimizer. All inputs validated;
+                   returns null (never NaN coefficients) for invalid/Nyquist cases
 
 public/
   targets/         Bundled EQ target curve files (.txt)
@@ -99,6 +109,7 @@ window.apoAPI.installUpdate()
 window.apoAPI.onUpdaterStatus(listener)   // Subscribe to updater events
 window.apoAPI.backupUserData()            // Export user data zip
 window.apoAPI.restoreUserData()           // Restore from zip
+window.apoAPI.lanDeviceRequest(req)       // HTTP to LAN PEQ devices (WiiM/Luxsin) — main-process, LAN-only
 
 window.windowAPI.minimize()
 window.windowAPI.maximize()
@@ -106,6 +117,25 @@ window.windowAPI.close()
 ```
 
 **Never call `require('electron')` or `require('fs')` from `src/` files** — they run in the renderer process and must use the bridge.
+
+### IPC security model (do not weaken)
+
+- Every `ipcMain` channel is registered through `handleApp()`, which rejects
+  calls from any frame that is not the app's own top-level document.
+- `read-config` / `write-config` / `list-config-files` only accept paths inside
+  the detected APO config dir or paths the user picked through a main-process
+  dialog (allowlist in `electron/main.js`).
+- `fetch-url-text` refuses private/loopback/LAN destinations, re-validates every
+  redirect hop, and validates DNS answers at socket-connect time.
+  `lan-device-request` is the inverse: LAN-only, single user-entered host, for
+  the network PEQ connector (renderer CSP blocks plain HTTP in production).
+- Navigation is locked to the exact `dist/index.html` (or the dev origin).
+
+### Testing production (CSP) behavior locally
+
+`NEON_EQ_LOAD_DIST=1 electron .` loads the built `dist/` (with the injected
+CSP) instead of the dev server — use it to catch production-only breakage
+(eval blocked, file:// quirks) without running electron-builder.
 
 ---
 

@@ -95,8 +95,56 @@ const VENDORS = {
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-async function sendCommand(cmdObj, timeoutMs = 1500) {
+// Issue #15: a ReadableStreamDefaultReader.read() cannot be aborted without
+// cancelling the whole stream, so per-command reads can hang forever on a
+// silent device and orphaned reads race later commands for data. Instead, a
+// single background pump owns the reader for the lifetime of the connection
+// and feeds _rxBuffer; commands are strictly serialized and wait on buffered
+// data with a real deadline.
+let _commandChain = Promise.resolve();
+let _streamClosed = false;
+let _dataWaiters = [];
+
+function _notifyData() {
+  const waiters = _dataWaiters;
+  _dataWaiters = [];
+  for (const wake of waiters) wake();
+}
+
+/** Resolves true when new data/close arrives, false when ms elapse first. */
+function _waitForData(ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), ms);
+    _dataWaiters.push(() => { clearTimeout(timer); resolve(true); });
+  });
+}
+
+async function _pumpLoop(reader) {
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) {
+        _rxBuffer += _decoder.decode(value, { stream: true });
+        _notifyData();
+      }
+    }
+  } catch { /* cancelled or device gone — treated as stream close below */ }
+  _streamClosed = true;
+  _notifyData();
+}
+
+function sendCommand(cmdObj, timeoutMs = 1500) {
+  const task = _commandChain.then(() => doSendCommand(cmdObj, timeoutMs));
+  _commandChain = task.catch(() => { /* keep the chain alive after failures */ });
+  return task;
+}
+
+async function doSendCommand(cmdObj, timeoutMs) {
   if (!_writer) throw new Error('Serial port not open.');
+  // Anything buffered now predates this command (banners, late replies to a
+  // timed-out command) — drop it so it can't be mistaken for our response.
+  _rxBuffer = '';
   const line = JSON.stringify(cmdObj) + '\r\n';
   await _writer.write(_encoder.encode(line));
   return readLine(timeoutMs);
@@ -104,20 +152,25 @@ async function sendCommand(cmdObj, timeoutMs = 1500) {
 
 async function readLine(timeoutMs = 1500) {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const nl = _rxBuffer.indexOf('\n');
-    if (nl >= 0) {
+  for (;;) {
+    // Consume every complete line already buffered.
+    let nl;
+    while ((nl = _rxBuffer.indexOf('\n')) >= 0) {
       const raw = _rxBuffer.slice(0, nl).trim();
       _rxBuffer = _rxBuffer.slice(nl + 1);
       if (!raw) continue;
       try { return JSON.parse(raw); }
       catch { /* skip non-JSON banner lines */ }
     }
-    const { value, done } = await _reader.read();
-    if (done) break;
-    if (value) _rxBuffer += _decoder.decode(value, { stream: true });
+
+    if (_streamClosed) throw new Error('Serial stream closed.');
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('Serial command timeout.');
+    const gotData = await _waitForData(remaining);
+    if (!gotData && _rxBuffer.indexOf('\n') < 0) {
+      throw new Error('Serial command timeout.');
+    }
   }
-  throw new Error('Serial command timeout.');
 }
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -140,6 +193,10 @@ export async function connect() {
   _reader = port.readable.getReader();
   _writer = port.writable.getWriter();
   _rxBuffer = '';
+  _streamClosed = false;
+  _dataWaiters = [];
+  _commandChain = Promise.resolve();
+  _pumpLoop(_reader);
   _vendor = vendor;
   _slots = vendor.slots.slice();
 
@@ -163,6 +220,8 @@ export async function disconnect() {
   try { if (_port)   { await _port.close(); } } catch {}
   _reader = _writer = _port = null;
   _vendor = _device = null;
+  _rxBuffer = '';
+  _notifyData();
 }
 
 export function isConnected() { return _device !== null; }

@@ -83,3 +83,50 @@ describe('magnitudeDb', () => {
     expect(magnitudeDb(coeffs, 1000, SR)).toBeCloseTo(filterGainDb(filter, 1000, SR), 6);
   });
 });
+
+describe('domain guards (issue #24)', () => {
+  const finite = (c) =>
+    c === null ||
+    (Number.isFinite(c.b0) && Number.isFinite(c.b1) && Number.isFinite(c.b2) &&
+     Number.isFinite(c.a1) && Number.isFinite(c.a2));
+
+  it('never returns NaN coefficients for BW filters at or near Nyquist', () => {
+    for (const freq of [23999, 24000, 24001, 30000]) {
+      const c = biquadCoeffs({ type: 'PK', frequency: freq, gain: 6, bw: 1, q: null }, SR);
+      expect(finite(c)).toBe(true);
+    }
+  });
+
+  it('clamps Q-form filters below Nyquist and keeps them finite', () => {
+    for (const freq of [23999, 24000, 24001, 1e6]) {
+      const c = biquadCoeffs({ type: 'PK', frequency: freq, gain: 6, q: 1 }, SR);
+      expect(finite(c)).toBe(true);
+      if (c) expect(magnitudeDb(c, 1000, SR)).not.toBeNaN();
+    }
+  });
+
+  it('rejects invalid frequency, sample rate, gain, Q, and BW', () => {
+    expect(biquadCoeffs({ type: 'PK', frequency: NaN, gain: 1, q: 1 }, SR)).toBeNull();
+    expect(biquadCoeffs({ type: 'PK', frequency: -100, gain: 1, q: 1 }, SR)).toBeNull();
+    expect(biquadCoeffs({ type: 'PK', frequency: 1000, gain: 1, q: 1 }, 0)).toBeNull();
+    expect(biquadCoeffs({ type: 'PK', frequency: 1000, gain: 1, q: 1 }, NaN)).toBeNull();
+    expect(biquadCoeffs({ type: 'PK', frequency: 1000, gain: NaN, q: 1 }, SR)).toBeNull();
+    expect(biquadCoeffs({ type: 'PK', frequency: 1000, gain: 1, q: NaN }, SR)).toBeNull();
+    expect(biquadCoeffs({ type: 'PK', frequency: 1000, gain: 1, q: -2 }, SR)).toBeNull();
+    expect(biquadCoeffs({ type: 'PK', frequency: 1000, gain: 1, q: null, bw: NaN }, SR)).toBeNull();
+  });
+
+  it('stays finite for extreme Q and BW values', () => {
+    for (const q of [1e-4, 1000]) {
+      expect(finite(biquadCoeffs({ type: 'PK', frequency: 1000, gain: 6, q }, SR))).toBe(true);
+    }
+    for (const bw of [0.001, 10, 100]) {
+      expect(finite(biquadCoeffs({ type: 'PK', frequency: 1000, gain: 6, bw, q: null }, SR))).toBe(true);
+    }
+  });
+
+  it('filterGainDb contributes 0 (not NaN) for filters it cannot build', () => {
+    const g = filterGainDb({ type: 'PK', frequency: 24000, gain: 6, bw: 1, q: null }, 1000, SR);
+    expect(Number.isFinite(g)).toBe(true);
+  });
+});

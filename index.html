@@ -970,8 +970,8 @@
           </div>
           <div id="include-list" class="include-list"></div>
           <button class="btn-ghost w-full" id="btn-add-include">+ Add Include</button>
-          <h3 class="section-title" style="margin-top:20px;">Expression Editor</h3>
-          <textarea id="expr-editor" class="code-editor" rows="5" placeholder="# If: sampleRate == 48000&#10;#   Filter: ON PK Fc 1000 Hz Gain -3.0 dB Q 2.0&#10;# EndIf:"></textarea>
+          <h3 class="section-title" style="margin-top:20px;">Conditional Blocks <span class="text-muted" style="font-weight:400;">(read-only — edit in Raw Configuration)</span></h3>
+          <textarea id="expr-editor" class="code-editor" rows="5" readonly placeholder="If/EndIf blocks and Eval lines from the loaded config appear here.&#10;They are preserved exactly as written on save — edit them in the Raw Configuration editor."></textarea>
         </div>
 
         <!-- Raw Config -->

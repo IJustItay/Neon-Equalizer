@@ -3,6 +3,8 @@
  * Parses config.txt into structured data objects
  */
 
+import { GENERATED_COMMENT_RE } from './serializer.js';
+
 const FILTER_TYPES = [
   'PK', 'Modal', 'PEQ',
   'LP', 'LPQ', 'HP', 'HPQ', 'BP',
@@ -34,7 +36,8 @@ export function parseConfig(text) {
     vstPlugins: [],
     loudnessCorrection: null,
     includes: [],
-    conditionals: [],
+    conditionals: [],       // legacy shape, kept for old snapshots — new parses use conditionalBlocks
+    conditionalBlocks: [],  // verbatim If…EndIf regions, preserved opaquely (issue #13)
     evals: [],
     comments: [],
     unsupportedLines: [],
@@ -67,8 +70,17 @@ export function parseConfig(text) {
           config.loudnessCorrection = { ...parseLoudnessCorrection(commentedParams, i), enabled: false };
           continue;
         }
+        if (commentedCmd === 'include' && commentedParams) {
+          // "# Include: foo.txt" is a disabled include, not prose (issue #22).
+          config.includes.push({ file: commentedParams, enabled: false, line: i });
+          continue;
+        }
       }
-      config.comments.push({ line: i, text: line });
+      // Skip section headers this app generates itself — storing them would
+      // duplicate them on every save. Everything else is user content.
+      if (!GENERATED_COMMENT_RE.test(line)) {
+        config.comments.push({ line: i, text: line });
+      }
       continue;
     }
 
@@ -78,6 +90,27 @@ export function parseConfig(text) {
 
     const cmdPart = line.substring(0, colonIdx).trim();
     const params = line.substring(colonIdx + 1).trim();
+
+    // If…EndIf regions are preserved verbatim as opaque blocks: the commands
+    // inside stay exactly where the user put them, so saving can never move a
+    // guarded filter outside its condition (issue #13). Their contents are not
+    // editable through the structured UI.
+    if (cmdPart.toLowerCase() === 'if') {
+      const block = { line: i, lines: [lines[i]] };
+      let depth = 1;
+      let j = i + 1;
+      for (; j < lines.length && depth > 0; j++) {
+        const inner = lines[j].trim();
+        const innerCmd = inner.includes(':') ? inner.substring(0, inner.indexOf(':')).trim().toLowerCase() : '';
+        if (innerCmd === 'if') depth++;
+        else if (innerCmd === 'endif') depth--;
+        block.lines.push(lines[j]);
+        config.rawLines.push(lines[j]);
+      }
+      config.conditionalBlocks.push(block);
+      i = j - 1;
+      continue;
+    }
 
     // Handle Filter with number (e.g., "Filter 1:")
     const filterMatch = cmdPart.match(/^Filter\s*(\d*)$/i);
@@ -102,7 +135,7 @@ export function parseConfig(text) {
 
       case 'channel':
         config.channels = params;
-        currentChannel = ['L','R'].includes(params.trim()) ? params.trim() : 'all';
+        currentChannel = normalizeChannelSpec(params);
         break;
 
       case 'stage':
@@ -137,17 +170,11 @@ export function parseConfig(text) {
         config.loudnessCorrection = parseLoudnessCorrection(params, i);
         break;
 
-      case 'if':
-        config.conditionals.push({ type: 'if', expr: params, line: i });
-        break;
       case 'elseif':
-        config.conditionals.push({ type: 'elseif', expr: params, line: i });
-        break;
       case 'else':
-        config.conditionals.push({ type: 'else', line: i });
-        break;
       case 'endif':
-        config.conditionals.push({ type: 'endif', line: i });
+        // Stray conditional token outside an If block — preserve verbatim.
+        config.unsupportedLines.push({ line: i, text: lines[i] });
         break;
       case 'eval':
         config.evals.push({ expr: params, line: i });
@@ -160,6 +187,19 @@ export function parseConfig(text) {
   }
 
   return config;
+}
+
+/**
+ * Normalize a Channel: directive value into the per-filter channel spec.
+ * Known single channel names are canonicalized (issue #14); any other
+ * selector (e.g. "L R", numeric channels) is kept verbatim so serialization
+ * can reproduce it exactly.
+ */
+function normalizeChannelSpec(params) {
+  const spec = String(params || '').trim();
+  if (!spec || spec.toLowerCase() === 'all') return 'all';
+  const canonical = CHANNEL_NAMES.find(name => name.toLowerCase() === spec.toLowerCase());
+  return canonical || spec;
 }
 
 /**
@@ -294,18 +334,41 @@ function parseApoNumber(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+/**
+ * Parse a frequency token using unambiguous separator rules (issue #17).
+ * A separator only counts as a thousands separator when the token proves it:
+ *   "1.234,5"     \u2192 dots group thousands, comma is the decimal \u2192 1234.5
+ *   "1,234.5"     \u2192 commas group thousands, dot is the decimal \u2192 1234.5
+ *   "1.000.000"   \u2192 repeated 3-digit dot groups \u2192 1000000
+ * A single dot is ALWAYS a decimal point \u2014 "20.000" is 20 Hz, never 20 kHz.
+ */
 function parseApoFrequency(value) {
   let normalized = String(value ?? '').trim().replace(/\u00A0/g, '');
-  if (!normalized.includes('.')) normalized = normalized.replace(/,/g, '.');
-  let num = Number(normalized);
-  if (
-    Number.isFinite(num) &&
-    normalized.length >= 5 &&
-    !/[eE]/.test(normalized) &&
-    normalized[normalized.length - 4] === '.'
-  ) {
-    num *= 1000;
+  const hasDot = normalized.includes('.');
+  const hasComma = normalized.includes(',');
+
+  const isGrouped = (str, sep) => {
+    const parts = str.replace(/^[-+]/, '').split(sep);
+    return parts.length > 2 &&
+      /^\d{1,3}$/.test(parts[0]) &&
+      parts.slice(1).every(p => /^\d{3}$/.test(p));
+  };
+
+  if (hasDot && hasComma) {
+    if (normalized.lastIndexOf('.') < normalized.lastIndexOf(',')) {
+      normalized = normalized.replace(/\./g, '').replace(',', '.');   // 1.234,5
+    } else {
+      normalized = normalized.replace(/,/g, '');                      // 1,234.5
+    }
+  } else if (hasComma) {
+    normalized = isGrouped(normalized, ',')
+      ? normalized.replace(/,/g, '')                                  // 1,000,000
+      : normalized.replace(/,/g, '.');                                // 1234,5
+  } else if (hasDot && isGrouped(normalized, '.') && !/[eE]/.test(normalized)) {
+    normalized = normalized.replace(/\./g, '');                       // 1.000.000
   }
+
+  const num = Number(normalized);
   return Number.isFinite(num) ? num : null;
 }
 

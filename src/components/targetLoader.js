@@ -16,6 +16,7 @@
  *  which feeds directly into freqGraph.setTargetData() and runAutoEQ().
  */
 import { parseMeasurementText, loadSquigSites, getReviewerConfigUrls } from './squiglinkDB.js';
+import { parseDataLiteral } from '../utils/dataLiteral.js';
 
 // Lazy cache of bundled index + parsed target files.
 let _bundledIndexPromise = null;
@@ -244,18 +245,12 @@ function parseConfigText(text) {
     throw new Error('`targets` array not found in config');
   }
 
-  // Evaluate the array literal in a sandboxed Function. Still untrusted input
-  // so we strip the most obvious risk vectors (function/new) — in practice
-  // the configs are static data, but an abundance of caution costs us nothing.
-  const safe = arr
-    .replace(/\b(?:function|=>|new\s+[A-Za-z_$])/g, 'null')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
-
+  // Parse the array as pure data — never execute remote config text. The
+  // literal parser rejects anything executable, works under the production
+  // CSP (no 'unsafe-eval'), and keeps malicious configs inert in dev.
   let raw;
   try {
-    // eslint-disable-next-line no-new-func
-    raw = Function(`"use strict"; return (${safe});`)();
+    raw = parseDataLiteral(arr);
   } catch (err) {
     throw new Error(`targets array unparseable: ${err.message}`);
   }

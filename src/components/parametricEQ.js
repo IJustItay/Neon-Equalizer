@@ -194,6 +194,27 @@ export class ParametricEQ {
     if (this.onChange) this.onChange(this.filters);
   }
 
+  // Channel selector options — every APO channel the parser knows (issue #14),
+  // plus a verbatim entry for custom selectors (e.g. "L R") so an imported
+  // config's channel spec is never silently reassigned.
+  _channelOptions(channel) {
+    const current = channel || 'all';
+    const known = [
+      ['all', 'All'],
+      ['L', 'L'], ['R', 'R'], ['C', 'C'], ['LFE', 'LFE'],
+      ['RL', 'RL'], ['RR', 'RR'], ['SL', 'SL'], ['SR', 'SR'], ['RC', 'RC'],
+    ];
+    const esc = (s) => String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    let html = known.map(([value, label]) =>
+      `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`
+    ).join('');
+    if (!known.some(([value]) => value === current)) {
+      html += `<option value="${esc(current)}" selected>${esc(current)}</option>`;
+    }
+    return html;
+  }
+
   _render() {
     this.container.innerHTML = '';
 
@@ -248,10 +269,8 @@ export class ParametricEQ {
           </div>
         </span>
         <span class="filter-col filter-col-channel">
-          <select class="select-styled select-sm filter-channel-select" title="Channel: all, Left, or Right">
-            <option value="all" ${(filter.channel || 'all') === 'all' ? 'selected' : ''}>All</option>
-            <option value="L" ${filter.channel === 'L' ? 'selected' : ''}>L</option>
-            <option value="R" ${filter.channel === 'R' ? 'selected' : ''}>R</option>
+          <select class="select-styled select-sm filter-channel-select" title="Channel this filter applies to">
+            ${this._channelOptions(filter.channel)}
           </select>
         </span>
         <span class="filter-col filter-col-actions">

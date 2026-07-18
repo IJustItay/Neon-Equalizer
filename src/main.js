@@ -214,7 +214,7 @@ const CONTROL_HELP = {
   'btn-export-squig-eq': 'Export filters in Squiglink format.',
   'btn-export-wavelet-eq': 'Export filters in Wavelet format.',
   'btn-add-include': 'Add an Equalizer APO Include file entry.',
-  'expr-editor': 'Write Equalizer APO conditional expressions or extra commands.',
+  'expr-editor': 'If/EndIf and Eval lines from the loaded config (read-only, preserved on save — edit in Raw Configuration).',
   'raw-config-editor': 'View or edit the raw Equalizer APO config text.',
   'btn-parse-raw': 'Parse the raw config text into the visual editor.',
   'btn-apply-raw': 'Apply the raw config text to the current setup.',
@@ -3206,6 +3206,10 @@ function initAutoEQControls() {
     statusEl.style.display = 'block';
   };
 
+  // Monotonic run counter — a result is only applied if no newer run started
+  // and none of the inputs changed while the worker was busy (issue #23).
+  let aeqRunSeq = 0;
+
   const runOptimizer = async () => {
     if (!freqGraph.measurementData) {
       setStatus('Load a measurement from the Headphone Browser first.', 'error');
@@ -3233,8 +3237,15 @@ function initAutoEQControls() {
     btnRun.disabled = true;
     if (!compatibility.warnings.length) setStatus('Optimizing raw curves...', 'loading');
 
-    await new Promise(r => requestAnimationFrame(r));
+    // Let the status message paint before heavy work — but never *gate* the
+    // run on rAF: a minimized/occluded window suspends animation frames and
+    // would leave AutoEQ stuck on "Optimizing..." forever.
+    await new Promise(resolve => {
+      const raf = requestAnimationFrame(() => { clearTimeout(timer); resolve(); });
+      const timer = setTimeout(() => { cancelAnimationFrame(raf); resolve(); }, 100);
+    });
 
+    const runToken = ++aeqRunSeq;
     try {
       const autoEQOptions = resolveNormalization(readOptions());
       const measurementForAutoEQ = freqGraph.getRawMeasurementData();
@@ -3242,6 +3253,24 @@ function initAutoEQControls() {
         ? tcBaseTargetData
         : freqGraph.getRawTargetData();
       const targetForAutoEQ = applyTargetAdjustments(baseTargetForAutoEQ, tcState);
+
+      // Snapshot input identities: filters computed for these inputs must not
+      // be applied if the user switches measurement/target/options mid-run.
+      const inputSnapshot = {
+        measurement: freqGraph.measurementData,
+        target: freqGraph.targetData,
+        base: tcBaseTargetData,
+        tc: JSON.stringify(tcState),
+        options: JSON.stringify(autoEQOptions),
+      };
+      const inputsUnchanged = () =>
+        runToken === aeqRunSeq &&
+        freqGraph.measurementData === inputSnapshot.measurement &&
+        freqGraph.targetData === inputSnapshot.target &&
+        tcBaseTargetData === inputSnapshot.base &&
+        JSON.stringify(tcState) === inputSnapshot.tc &&
+        JSON.stringify(resolveNormalization(readOptions())) === inputSnapshot.options;
+
       let result;
       try {
         // Run off the UI thread; report progress in the status line.
@@ -3251,6 +3280,7 @@ function initAutoEQControls() {
           autoEQOptions,
           {
             onProgress: (done, total, stage) => {
+              if (runToken !== aeqRunSeq) return;   // stale run — ignore
               if (stage === 'refining' || stage === 'done') {
                 setStatus('Refining filters…', 'loading');
               } else {
@@ -3263,6 +3293,11 @@ function initAutoEQControls() {
         // Worker unavailable/failed — fall back to synchronous optimization.
         console.warn('AutoEQ worker failed, running on main thread:', workerErr);
         result = runAutoEQ(measurementForAutoEQ, targetForAutoEQ, autoEQOptions);
+      }
+      if (!inputsUnchanged()) {
+        setStatus('Inputs changed during optimization — results discarded. Run again.', 'error');
+        showToast('AutoEQ inputs changed mid-run — run again', 'warning');
+        return;
       }
       const { filters, preamp, alignment } = result;
 
@@ -3451,10 +3486,10 @@ function initSquiglinkDBPanel() {
         : '';
       return `
         <div class="squig-result-item" data-idx="${idx}">
-          <div class="squig-sig-dot" style="background:${item.sourceColor}" title="${escapeHtml(item.sourceName)}"></div>
+          <div class="squig-sig-dot" style="background:${escapeCssColor(item.sourceColor)}" title="${escapeHtml(item.sourceName)}"></div>
           <div class="squig-item-name">
             ${escapeHtml(item.name)}${variantsHint}
-            <span class="squig-source-badge" style="background:${item.sourceColor}22;color:${item.sourceColor};border:1px solid ${item.sourceColor}44;font-size:10px;padding:1px 5px;border-radius:4px;margin-left:4px;">${item.sourceIcon} ${item.sourceName}</span>
+            <span class="squig-source-badge" style="background:${escapeCssColor(item.sourceColor)}22;color:${escapeCssColor(item.sourceColor)};border:1px solid ${escapeCssColor(item.sourceColor)}44;font-size:10px;padding:1px 5px;border-radius:4px;margin-left:4px;">${escapeHtml(item.sourceIcon || '')} ${escapeHtml(item.sourceName || '')}</span>
             ${sigBadge}
           </div>
           <div class="squig-item-meta">
@@ -4282,7 +4317,7 @@ function renderIncludes() {
         <input type="checkbox" ${inc.enabled ? 'checked' : ''}>
         <span class="toggle-switch"></span>
       </label>
-      <span class="include-path" title="${inc.file}">${inc.file}</span>
+      <span class="include-path" title="${escapeHtml(inc.file)}">${escapeHtml(inc.file)}</span>
       <button class="filter-delete" title="Remove">✕</button>
     `;
     row.querySelector('input').addEventListener('change', e => { inc.enabled = e.target.checked; markDirty(); });
@@ -4402,8 +4437,14 @@ function applyConfigObject(config, rawText = null) {
 
   document.getElementById('raw-config-editor').value = rawText || serializeConfig(appState.config);
 
-  // Expression editor
+  // Expression viewer — shows preserved If/EndIf blocks and Eval lines.
+  // Read-only: these regions round-trip verbatim (see parser conditionalBlocks)
+  // and are edited through the Raw Config editor. Always assigned so stale
+  // text from a previously loaded config never lingers (issue #18).
   const exprParts = [];
+  for (const block of appState.config.conditionalBlocks || []) {
+    exprParts.push(...(block.lines || []));
+  }
   for (const c of appState.config.conditionals || []) {
     if (c.type === 'if') exprParts.push(`If: ${c.expr}`);
     else if (c.type === 'elseif') exprParts.push(`ElseIf: ${c.expr}`);
@@ -4411,7 +4452,12 @@ function applyConfigObject(config, rawText = null) {
     else if (c.type === 'endif') exprParts.push('EndIf:');
   }
   for (const ev of appState.config.evals || []) exprParts.push(`Eval: ${ev.expr}`);
-  if (exprParts.length) document.getElementById('expr-editor').value = exprParts.join('\n');
+  const exprEditor = document.getElementById('expr-editor');
+  if (exprEditor) {
+    exprEditor.value = exprParts.join('\n');
+    exprEditor.readOnly = true;
+    exprEditor.placeholder = 'If/EndIf blocks and Eval lines from the loaded config appear here.\nEdit them in the Raw Config editor — they are preserved exactly as written on save.';
+  }
 
   updateGraphLegend();
   updateFilterCount();
@@ -4710,6 +4756,19 @@ function escapeHtml(str) {
     .replace(/</g,'&lt;')
     .replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;');
+}
+
+/**
+ * Sanitize a remote-supplied color for inline style interpolation. Accepts
+ * #hex or simple rgb()/hsl()/named tokens; anything else falls back to a
+ * neutral gray so registry data can never break out of the style attribute.
+ */
+function escapeCssColor(color) {
+  const c = String(color || '').trim();
+  if (/^#[0-9a-fA-F]{3,8}$/.test(c)) return c;
+  if (/^[a-zA-Z]{3,20}$/.test(c)) return c;
+  if (/^(?:rgb|rgba|hsl|hsla)\([\d\s.,%\/-]{1,40}\)$/.test(c)) return c;
+  return '#888';
 }
 
 // ═══════════════════════════════════════════════════════════
