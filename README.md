@@ -10,10 +10,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/IJustItay/Neon-Equalizer/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/IJustItay/Neon-Equalizer?style=for-the-badge&label=release&color=00d4ff"></a>
-  <a href="https://github.com/IJustItay/Neon-Equalizer/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/IJustItay/Neon-Equalizer/total?style=for-the-badge&color=7c3aed"></a>
-  <a href="https://github.com/IJustItay/Neon-Equalizer/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/IJustItay/Neon-Equalizer/ci.yml?style=for-the-badge&label=CI"></a>
-  <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/github/license/IJustItay/Neon-Equalizer?style=for-the-badge&color=10b981"></a>
+  <a href="https://github.com/IJustItay/Neon-Equalizer/releases/latest"><img alt="Latest release" src="https://badgen.net/github/tag/IJustItay/Neon-Equalizer?label=release&color=00d4ff"></a>
+  <a href="https://github.com/IJustItay/Neon-Equalizer/releases/latest"><img alt="Platform: Windows 10+" src="https://badgen.net/badge/Windows/10%2B/00a8ff"></a>
+  <a href="https://github.com/IJustItay/Neon-Equalizer/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/IJustItay/Neon-Equalizer/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: GPL-3.0" src="https://badgen.net/github/license/IJustItay/Neon-Equalizer"></a>
 </p>
 
 <p align="center">
