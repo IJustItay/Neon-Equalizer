@@ -3639,3 +3639,161 @@ body.help-mode [data-help] {
 [data-theme="light"] .surround-channel-row { background: #ffffff; }
 [data-theme="light"] .hrtf-config-preview { background: #f0f4fa; }
 [data-theme="light"] .hrtf-file-card { background: #ffffff; }
+
+/* ═══════════════════════════════════════════════════════════
+   PROFILES & PER-DEVICE SAVED STATE
+   ═══════════════════════════════════════════════════════════ */
+
+/* Inline "what's stored here" text next to the profile picker. */
+.profile-summary {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+/* Pill next to the device selector showing saved / not-saved state. */
+.device-saved-state {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--bg-border);
+  background: var(--bg-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 210px;
+}
+.device-saved-state.is-saved {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+}
+
+/* Profile rows in the Advanced panel list. */
+.preset-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.preset-row-name { font-size: 12px; color: var(--text-primary); }
+.preset-row-summary {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Device manager dialog ── */
+.device-manager-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(3px);
+  padding: 24px;
+}
+.device-manager {
+  width: min(720px, 100%);
+  max-height: min(78vh, 720px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg2);
+  border: 1px solid var(--bg-border-h);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+.device-manager-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--bg-border);
+}
+.device-manager-header h3 { margin: 0; font-size: 14px; color: var(--text-primary); }
+.device-manager-desc {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--bg-border);
+}
+.device-manager-list {
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.device-manager-footer {
+  padding: 10px 16px;
+  border-top: 1px solid var(--bg-border);
+  background: var(--bg3);
+}
+.device-manager-hint { font-size: 11px; color: var(--text-muted); }
+
+.device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: var(--bg3);
+  transition: border-color var(--t-fast) var(--ease-out);
+}
+.device-row:hover { border-color: var(--bg-border-h); }
+.device-row.is-saved { border-left: 2px solid var(--green); }
+.device-row.is-empty { opacity: 0.78; }
+.device-row.is-current { background: var(--bg4); border-color: var(--cyan); }
+/* Keep the green "saved" edge readable on the currently selected row, so the
+   row communicates both states (cyan = current, green = has saved state). */
+.device-row.is-current.is-saved { border-left-color: var(--green); }
+
+.device-row-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.device-row-title { display: flex; align-items: center; gap: 6px; }
+.device-row-name {
+  font-size: 12.5px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.device-row-badge {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-border);
+  color: var(--text-muted);
+}
+.device-row-badge.is-current-badge {
+  color: var(--cyan);
+  border-color: color-mix(in srgb, var(--cyan) 45%, transparent);
+}
+.device-row-summary { font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); }
+.device-row-settings { font-size: 10px; color: var(--text-secondary); }
+.device-row-settings.device-row-muted { color: var(--text-muted); }
+.device-row-when { font-size: 9.5px; color: var(--text-muted); }
+.device-row-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+.device-row-hint { font-size: 10px; color: var(--text-muted); }
+
+[data-theme="light"] .device-manager { background: #ffffff; }
+[data-theme="light"] .device-row { background: #f5f8fc; }
+[data-theme="light"] .device-row.is-current { background: #eaf4fb; }

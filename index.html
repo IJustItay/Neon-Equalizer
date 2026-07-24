@@ -82,8 +82,10 @@
           <option value="all">All Devices</option>
         </select>
         <button class="device-profile-btn device-icon-btn" id="btn-device-refresh" title="Refresh Windows audio devices">↻</button>
-        <button class="device-profile-btn" id="btn-device-save-preset" title="Save current EQ as the selected device preset">Preset</button>
-        <label class="device-auto-switch" title="Load a saved EQ preset when the selected device changes">
+        <button class="device-profile-btn" id="btn-device-save-preset" title="Save the current EQ and settings for the selected device">Save</button>
+        <button class="device-profile-btn" id="btn-device-manage" title="See exactly what is saved for every device">Devices</button>
+        <span class="device-saved-state" id="device-saved-state" title="What is saved for the selected device"></span>
+        <label class="device-auto-switch" title="Restore the saved EQ and settings when the selected device changes">
           <input type="checkbox" id="device-auto-switch-enabled">
           <span class="save-mode-track"><span class="save-mode-dot"></span></span>
           <span>Auto Device</span>
@@ -260,11 +262,12 @@
         <span class="filter-count-badge" id="filter-count-badge">0 filters</span>
         <div class="toolbar-spacer"></div>
         <select id="quick-preset-select" class="select-sm quick-preset-select">
-          <option value="">My EQ Presets...</option>
+          <option value="">My EQ Profiles...</option>
         </select>
-        <input type="text" id="quick-preset-name" class="quick-preset-name" placeholder="Preset name">
-        <button class="btn-ghost" id="btn-quick-save" title="Save current EQ as a local preset">Save EQ</button>
-        <button class="btn-ghost danger-soft" id="btn-quick-delete" title="Delete selected local preset">Delete</button>
+        <span class="profile-summary" id="quick-preset-summary" title="What this profile contains"></span>
+        <input type="text" id="quick-preset-name" class="quick-preset-name" placeholder="Profile name">
+        <button class="btn-ghost" id="btn-quick-save" title="Save the current EQ and settings as a named profile">Save Profile</button>
+        <button class="btn-ghost danger-soft" id="btn-quick-delete" title="Delete the selected profile">Delete</button>
       </div>
       <div class="eq-history-bar" data-eq-history-mode="parametric">
         <span class="eq-history-title">Parametric History</span>
@@ -1172,6 +1175,23 @@
       <span id="status-text-footer"></span>
     </div>
   </footer>
+
+  <!-- ══ Device Manager ═════════════════════════════════════════ -->
+  <div class="device-manager-backdrop" id="device-manager" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="device-manager-title">
+    <div class="device-manager">
+      <div class="device-manager-header">
+        <h3 id="device-manager-title">Saved Devices</h3>
+        <button class="icon-btn" id="btn-device-manager-close" title="Close">✕</button>
+      </div>
+      <p class="device-manager-desc">
+        Each device stores its own EQ <strong>and</strong> settings. This is exactly what is saved for each one.
+      </p>
+      <div class="device-manager-list" id="device-manager-list"></div>
+      <div class="device-manager-footer">
+        <span class="device-manager-hint">Turn on <strong>Auto Device</strong> to restore a device's setup automatically when you switch to it.</span>
+      </div>
+    </div>
+  </div>
 
   <!-- ══ Toast Container ════════════════════════════════════════ -->
   <div class="toast-container" id="toast-container"></div>

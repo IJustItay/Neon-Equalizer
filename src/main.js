@@ -23,6 +23,7 @@ import {
 } from './components/targetAdjustments.js';
 import * as TargetLoader from './components/targetLoader.js';
 import { appBus, history, createRefresher, REFRESH } from './state/store.js';
+import * as Profiles from './state/profiles.js';
 
 // ─── App State ───────────────────────────────────────────────
 let appState = {
@@ -50,9 +51,8 @@ let autoApplyPending = false;
 let latestUpdateRelease = null;
 let currentUpdaterState = null;
 let apoAudioDevices = [];
-const AUTO_SAVE_APO_KEY = 'neon-equalizer:auto-save-apo';
-const DEVICE_PRESETS_KEY = 'neon-equalizer:device-presets:v1';
-const DEVICE_AUTO_SWITCH_KEY = 'neon-equalizer:device-auto-switch';
+// Auto-save, device-auto-switch and device presets now live in the settings
+// registry / profile store (src/state/profiles.js) — see SETTINGS_REGISTRY.
 const THEME_KEY = 'neon-equalizer:theme';
 const HELP_MODE_KEY = 'neon-equalizer:help-mode';
 const APP_VERSION = appPackage.version || '0.0.0';
@@ -63,6 +63,8 @@ const EQ_SNAPSHOT_KEY = 'neon-equalizer:eq-snapshots:v1';
 const EQ_AB_KEY = 'neon-equalizer:eq-ab:v1';
 const REVIEWER_NORMALIZATION_KEY = 'neon-equalizer:reviewer-normalization:v1';
 const EQ_SNAPSHOT_LIMIT = 24;
+// Every EQ mode gets the same snapshot / A-B / history treatment.
+const EQ_MODES = ['parametric', 'graphic', 'peq'];
 let graphNormalizeScope = null;
 let graphNormalizeSync = null;
 // ─── Target Customizer State ──────────────────────────────────
@@ -1713,20 +1715,11 @@ function initAutoSaveAPOToggle() {
 }
 
 function getAutoSaveAPOEnabled() {
-  try {
-    const stored = localStorage.getItem(AUTO_SAVE_APO_KEY);
-    return stored === null ? true : stored === 'true';
-  } catch {
-    return true;
-  }
+  return Profiles.getSetting('autoSaveApo') !== false;
 }
 
 function setAutoSaveAPOEnabled(enabled) {
-  try {
-    localStorage.setItem(AUTO_SAVE_APO_KEY, String(Boolean(enabled)));
-  } catch {
-    // Ignore storage failures; the visible toggle still controls this session.
-  }
+  Profiles.setSetting('autoSaveApo', Boolean(enabled));
 }
 
 function updateSaveModeLabel(enabled) {
@@ -1745,25 +1738,26 @@ function initDeviceSelector() {
   if (!select) return;
 
   renderDeviceSelector(appState.config.device || 'all');
+  renderDeviceSavedState();
+  initDeviceManager();
   refreshAudioDeviceOptions({ silent: true });
 
   select.addEventListener('change', async () => {
     const selected = getSelectedDeviceChoice();
-    const deviceKey = normalizeDevicePresetKey(selected.value);
-    const profile = getDevicePresets()[deviceKey];
+    const profile = Profiles.getDeviceProfile(selected.value);
 
-    if (getDeviceAutoSwitchEnabled() && profile?.config) {
+    if (getDeviceAutoSwitchEnabled() && profile?.eq) {
       pushUndo();
-      const nextConfig = JSON.parse(JSON.stringify(profile.config));
-      nextConfig.device = selected.value === 'all' ? null : selected.value;
-      applyConfigObject(nextConfig);
+      const summary = applyDeviceProfile(profile, selected.value);
       renderDeviceSelector(selected.value);
+      renderDeviceSavedState();
       await applyDeviceSelectionToApo(profile.name || selected.label);
-      showToast(`Loaded device preset: ${profile.name || selected.label}`, 'success');
+      showToast(`Restored ${profile.name || selected.label}: ${summary.text}`, 'success');
       return;
     }
 
     appState.config.device = selected.value === 'all' ? null : selected.value;
+    renderDeviceSavedState();
     await applyDeviceSelectionToApo(selected.label);
   });
 
@@ -1784,33 +1778,19 @@ function initDeviceSelector() {
   });
 }
 
+// Device state is stored as full profiles (EQ + settings) via src/state/profiles.js.
+// These wrappers keep the call sites in this file small and give the renderer a
+// single vocabulary for "what is saved for this device".
 function getDevicePresets() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(DEVICE_PRESETS_KEY) || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function setDevicePresets(presets) {
-  localStorage.setItem(DEVICE_PRESETS_KEY, JSON.stringify(presets));
+  return Profiles.getDeviceProfiles();
 }
 
 function getDeviceAutoSwitchEnabled() {
-  try {
-    return localStorage.getItem(DEVICE_AUTO_SWITCH_KEY) === 'true';
-  } catch {
-    return false;
-  }
+  return Profiles.getSetting('deviceAutoSwitch') === true;
 }
 
 function setDeviceAutoSwitchEnabled(enabled) {
-  try {
-    localStorage.setItem(DEVICE_AUTO_SWITCH_KEY, String(Boolean(enabled)));
-  } catch {
-    // Keep the live toggle usable even if persistent storage is blocked.
-  }
+  Profiles.setSetting('deviceAutoSwitch', Boolean(enabled));
 }
 
 async function refreshAudioDeviceOptions({ silent = true } = {}) {
@@ -1825,6 +1805,7 @@ async function refreshAudioDeviceOptions({ silent = true } = {}) {
     const result = await window.apoAPI.listAudioDevices();
     apoAudioDevices = Array.isArray(result?.devices) ? result.devices : [];
     renderDeviceSelector(current);
+    renderDeviceSavedState();
     if (!silent) showToast(`Found ${apoAudioDevices.length} Windows audio device${apoAudioDevices.length === 1 ? '' : 's'}`, 'success');
   } catch (err) {
     apoAudioDevices = [];
@@ -1886,7 +1867,7 @@ function renderDeviceSelector(preferred = null) {
       opt.value = presets[key]?.device || key;
       opt.dataset.displayName = name;
       opt.dataset.deviceValue = presets[key]?.device || key;
-      opt.textContent = presets[key]?.config ? `${name} • preset` : name;
+      opt.textContent = presets[key]?.eq ? `${name} • saved` : name;
       opt.title = presets[key]?.device || key;
       optgroup.appendChild(opt);
     }
@@ -1908,39 +1889,60 @@ function renderDeviceSelector(preferred = null) {
 }
 
 function saveCurrentDevicePreset() {
-  const select = document.getElementById('device-select');
   const selected = getSelectedDeviceChoice();
-  let displayName = selected.value !== 'all'
-    ? selected.label
-    : (appState.config.device || '');
+  const isAllDevices = Profiles.deviceKey(selected.value) === 'all';
 
-  if (!displayName || displayName === 'all') {
-    displayName = window.prompt('Device name for this EQ preset:', '')?.trim() || '';
-  }
-  if (!displayName) {
-    showToast('Device preset needs a name', 'warning');
-    return;
-  }
-
-  const deviceValue = selected.value === 'all' ? displayName : selected.value;
-  const key = normalizeDevicePresetKey(deviceValue);
+  // "All Devices" is a valid target — it stores the global default setup, so it
+  // saves directly instead of demanding a name. Named devices use their own label.
+  const displayName = isAllDevices ? 'All Devices' : (selected.label || selected.value);
+  const deviceValue = isAllDevices ? 'all' : selected.value;
   const config = snapshotCurrentConfig();
   config.device = deviceValue;
 
-  const presets = getDevicePresets();
-  presets[key] = {
-    name: displayName,
-    device: deviceValue,
-    updatedAt: new Date().toISOString(),
-    config
-  };
-  setDevicePresets(presets);
+  // Save the *whole* state for this device — EQ plus every profile-scope
+  // setting — so switching devices restores the full setup, not just filters.
+  const profile = Profiles.createProfile(
+    displayName,
+    config,
+    Profiles.captureSettings('profile'),
+    { device: deviceValue, eqMode: currentEQMode }
+  );
+  Profiles.setDeviceProfile(deviceValue, profile);
 
-  appState.config.device = deviceValue;
+  // The config uses null (not the string 'all') for the global target.
+  appState.config.device = isAllDevices ? null : deviceValue;
   renderDeviceSelector(deviceValue);
+  renderDeviceSavedState();
   applyDeviceSelectionToApo(displayName).then(() => {
-    showToast(`Saved device preset: ${displayName}`, 'success');
+    const summary = Profiles.summarizeProfile(profile);
+    showToast(`Saved for ${displayName}: ${summary.text}`, 'success');
   });
+}
+
+/**
+ * Apply a saved device profile: EQ config first, then its settings.
+ * Returns the summary so callers can tell the user what was restored.
+ */
+function applyDeviceProfile(profile, deviceValue) {
+  const nextConfig = JSON.parse(JSON.stringify(profile.eq || {}));
+  nextConfig.device = !deviceValue || deviceValue === 'all' ? null : deviceValue;
+  applyConfigObject(nextConfig);
+
+  const applied = Profiles.applySettings(profile.settings || {});
+  if (applied.includes('autoSaveApo')) syncAutoSaveApoToggle();
+  if (applied.includes('deviceAutoSwitch')) {
+    const toggle = document.getElementById('device-auto-switch-enabled');
+    if (toggle) toggle.checked = getDeviceAutoSwitchEnabled();
+  }
+  return Profiles.summarizeProfile(profile);
+}
+
+/** Keep the Auto/Manual save toggle in sync with stored settings. */
+function syncAutoSaveApoToggle() {
+  const enabled = getAutoSaveAPOEnabled();
+  const toggle = document.getElementById('auto-save-apo-enabled');
+  if (toggle) toggle.checked = enabled;
+  updateSaveModeLabel(enabled);
 }
 
 async function applyDeviceSelectionToApo(label = '') {
@@ -1974,8 +1976,128 @@ function getSelectedDeviceChoice() {
 }
 
 function normalizeDevicePresetKey(value) {
-  const text = String(value || '').trim();
-  return !text || text.toLowerCase() === 'all' ? 'all' : text;
+  return Profiles.deviceKey(value);
+}
+
+// ─── Device saved-state visibility ───────────────────────────────────────────
+
+/** Pill next to the device selector: what is saved for the current device. */
+function renderDeviceSavedState() {
+  const el = document.getElementById('device-saved-state');
+  if (!el) return;
+  const selected = getSelectedDeviceChoice();
+  const profile = Profiles.getDeviceProfile(selected.value);
+  const summary = Profiles.summarizeProfile(profile);
+
+  el.textContent = summary.exists ? `Saved: ${summary.text}` : 'Not saved';
+  el.classList.toggle('is-saved', summary.exists);
+  el.title = summary.exists
+    ? `${selected.label} — saved ${new Date(summary.updatedAt).toLocaleString()}` +
+      (summary.settings.length ? `\nSettings: ${summary.settings.join(', ')}` : '\nNo settings stored')
+    : `Nothing saved for ${selected.label} yet. Press Save to store the current EQ and settings.`;
+}
+
+function initDeviceManager() {
+  const backdrop = document.getElementById('device-manager');
+  const list = document.getElementById('device-manager-list');
+  if (!backdrop || !list) return;
+
+  const close = () => { backdrop.style.display = 'none'; };
+  const open = () => { renderDeviceManager(); backdrop.style.display = 'flex'; };
+
+  document.getElementById('btn-device-manage')?.addEventListener('click', open);
+  document.getElementById('btn-device-manager-close')?.addEventListener('click', close);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && backdrop.style.display !== 'none') close();
+  });
+
+  // Delegated actions (CSP-safe: no inline handlers).
+  list.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-device-action]');
+    if (!btn) return;
+    const key = btn.dataset.deviceKey;
+    const action = btn.dataset.deviceAction;
+
+    if (action === 'apply') {
+      const profile = Profiles.getDeviceProfile(key);
+      if (!profile) return;
+      pushUndo();
+      const summary = applyDeviceProfile(profile, key);
+      appState.config.device = key === 'all' ? null : key;
+      renderDeviceSelector(key);
+      renderDeviceSavedState();
+      renderDeviceManager();
+      markDirty();
+      showToast(`Applied ${profile.name}: ${summary.text}`, 'success');
+    } else if (action === 'delete') {
+      Profiles.deleteDeviceProfile(key);
+      renderDeviceSelector(appState.config.device || 'all');
+      renderDeviceSavedState();
+      renderDeviceManager();
+      showToast('Removed saved device setup', 'info');
+    }
+  });
+}
+
+function renderDeviceManager() {
+  const list = document.getElementById('device-manager-list');
+  if (!list) return;
+
+  const saved = Profiles.getDeviceProfiles();
+  const currentKey = Profiles.deviceKey(getSelectedDeviceChoice().value);
+
+  // Show every known device — those with saved state and those without — so the
+  // user can see coverage at a glance, not just what happens to be stored.
+  const rows = new Map();
+  rows.set('all', { key: 'all', label: 'All Devices', connected: true });
+  for (const device of apoAudioDevices) {
+    if (!device?.apoValue) continue;
+    rows.set(Profiles.deviceKey(device.apoValue), {
+      key: Profiles.deviceKey(device.apoValue),
+      label: device.name || device.apoValue,
+      connected: device.active !== false,
+      flow: device.flowLabel || '',
+    });
+  }
+  for (const [key, profile] of Object.entries(saved)) {
+    if (!rows.has(key)) {
+      rows.set(key, { key, label: profile.name || key, connected: false, offline: true });
+    }
+  }
+
+  list.innerHTML = [...rows.values()].map(row => {
+    const summary = Profiles.summarizeProfile(saved[row.key]);
+    const isCurrent = row.key === currentKey;
+    const statusClass = summary.exists ? 'is-saved' : 'is-empty';
+    const when = summary.exists
+      ? `Updated ${new Date(summary.updatedAt).toLocaleString()}`
+      : 'No EQ or settings stored for this device yet';
+    const settingsLine = summary.exists && summary.settings.length
+      ? `<div class="device-row-settings">Settings: ${escapeHtml(summary.settings.join(', '))}</div>`
+      : (summary.exists ? '<div class="device-row-settings device-row-muted">No settings stored</div>' : '');
+
+    return `
+      <div class="device-row ${statusClass}${isCurrent ? ' is-current' : ''}">
+        <div class="device-row-main">
+          <div class="device-row-title">
+            <span class="device-row-name">${escapeHtml(row.label)}</span>
+            ${isCurrent ? '<span class="device-row-badge is-current-badge">current</span>' : ''}
+            ${row.offline ? '<span class="device-row-badge">not connected</span>' : ''}
+            ${!row.connected && !row.offline ? '<span class="device-row-badge">disabled</span>' : ''}
+          </div>
+          <div class="device-row-summary">${escapeHtml(summary.exists ? summary.text : 'Nothing saved')}</div>
+          ${settingsLine}
+          <div class="device-row-when">${escapeHtml(when)}</div>
+        </div>
+        <div class="device-row-actions">
+          ${summary.exists ? `
+            <button class="btn-ghost" data-device-action="apply" data-device-key="${escapeHtml(row.key)}">Apply</button>
+            <button class="btn-ghost danger-soft" data-device-action="delete" data-device-key="${escapeHtml(row.key)}">Clear</button>
+          ` : '<span class="device-row-hint">Select it, then press Save</span>'}
+        </div>
+      </div>`;
+  }).join('');
 }
 
 function initWindowControls() {
@@ -2753,31 +2875,23 @@ async function exportGraphicEQResponse() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// QUICK LOCAL EQ PRESETS
+// USER PROFILES (named saves of EQ + settings)
 // ═══════════════════════════════════════════════════════════════
-const QUICK_PRESETS_KEY = 'eqapoStudio.quickPresets.v1';
+// Backed by src/state/profiles.js. Legacy `eqapoStudio.quickPresets.v1`
+// entries are migrated automatically on first read.
 
 function initQuickPresets() {
   document.getElementById('btn-quick-save')?.addEventListener('click', saveQuickPreset);
   document.getElementById('btn-quick-delete')?.addEventListener('click', deleteQuickPreset);
   document.getElementById('quick-preset-select')?.addEventListener('change', (e) => {
     if (e.target.value) loadQuickPreset(e.target.value);
+    else renderProfileSummary();
   });
   renderQuickPresetSelect();
 }
 
 function getQuickPresets() {
-  try {
-    const raw = localStorage.getItem(QUICK_PRESETS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function setQuickPresets(presets) {
-  localStorage.setItem(QUICK_PRESETS_KEY, JSON.stringify(presets));
+  return Profiles.listProfiles();
 }
 
 function snapshotCurrentConfig() {
@@ -2795,14 +2909,34 @@ function renderQuickPresetSelect() {
   if (!select) return;
   const presets = getQuickPresets().sort((a, b) => a.name.localeCompare(b.name));
   const current = select.value;
-  select.innerHTML = '<option value="">My EQ Presets...</option>';
+  select.innerHTML = '<option value="">My EQ Profiles...</option>';
   for (const preset of presets) {
     const opt = document.createElement('option');
     opt.value = preset.name;
     opt.textContent = preset.name;
+    // Show exactly what this profile holds so saves are never opaque.
+    opt.title = Profiles.summarizeProfile(preset).text;
     select.appendChild(opt);
   }
   select.value = presets.some(p => p.name === current) ? current : '';
+  renderProfileSummary();
+}
+
+/** Show what the currently selected profile contains. */
+function renderProfileSummary() {
+  const el = document.getElementById('quick-preset-summary');
+  if (!el) return;
+  const name = document.getElementById('quick-preset-select')?.value;
+  if (!name) {
+    el.textContent = '';
+    el.title = '';
+    return;
+  }
+  const summary = Profiles.summarizeProfile(Profiles.getProfile(name));
+  el.textContent = summary.text;
+  el.title = summary.settings.length
+    ? `Includes settings: ${summary.settings.join(', ')}`
+    : 'No settings stored in this profile';
 }
 
 function saveQuickPreset() {
@@ -2810,51 +2944,60 @@ function saveQuickPreset() {
   const select = document.getElementById('quick-preset-select');
   const name = (input?.value || select?.value || '').trim();
   if (!name) {
-    showToast('Name your EQ preset first', 'warning');
+    showToast('Name your EQ profile first', 'warning');
     input?.focus();
     return;
   }
 
-  const presets = getQuickPresets();
-  const next = {
+  // A profile captures the full picture: EQ config *and* every profile-scope
+  // setting, so restoring it reproduces the whole setup.
+  const profile = Profiles.createProfile(
     name,
-    updatedAt: new Date().toISOString(),
-    config: snapshotCurrentConfig()
-  };
-  const idx = presets.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
-  if (idx >= 0) presets[idx] = next;
-  else presets.push(next);
+    snapshotCurrentConfig(),
+    Profiles.captureSettings('profile'),
+    { eqMode: currentEQMode, device: appState.config.device || 'all' }
+  );
+  Profiles.saveProfile(profile);
 
-  setQuickPresets(presets);
   if (input) input.value = '';
   renderQuickPresetSelect();
   if (select) select.value = name;
-  showToast(`Saved EQ preset: ${name}`, 'success');
+  renderProfileSummary();
+  showToast(`Saved profile "${name}": ${Profiles.summarizeProfile(profile).text}`, 'success');
 }
 
 function loadQuickPreset(name) {
-  const preset = getQuickPresets().find(p => p.name === name);
-  if (!preset?.config) return;
+  const profile = Profiles.getProfile(name);
+  if (!profile?.eq) return;
   pushUndo();
-  applyConfigObject(preset.config);
+  applyConfigObject(profile.eq);
+
+  const applied = Profiles.applySettings(profile.settings || {});
+  if (applied.includes('autoSaveApo')) syncAutoSaveApoToggle();
+  if (applied.includes('deviceAutoSwitch')) {
+    const toggle = document.getElementById('device-auto-switch-enabled');
+    if (toggle) toggle.checked = getDeviceAutoSwitchEnabled();
+  }
+
   markDirty();
-  showToast(`Loaded EQ preset: ${name}`, 'success');
+  renderProfileSummary();
+  showToast(`Loaded "${name}": ${Profiles.summarizeProfile(profile).text}`, 'success');
 }
 
 function deleteQuickPreset() {
   const select = document.getElementById('quick-preset-select');
   const name = select?.value;
   if (!name) {
-    showToast('Choose a preset to delete', 'warning');
+    showToast('Choose a profile to delete', 'warning');
     return;
   }
-  setQuickPresets(getQuickPresets().filter(p => p.name !== name));
+  Profiles.deleteProfile(name);
   renderQuickPresetSelect();
-  showToast(`Deleted EQ preset: ${name}`, 'info');
+  showToast(`Deleted profile: ${name}`, 'info');
 }
 
 function initEQSnapshotHistory() {
-  for (const mode of ['parametric', 'graphic']) {
+  for (const mode of EQ_MODES) {
     document.querySelectorAll(`[data-eq-history-mode="${mode}"] [data-snapshot-action]`).forEach(btn => {
       btn.addEventListener('click', () => handleSnapshotAction(mode, btn.dataset.snapshotAction));
     });
@@ -2879,33 +3022,32 @@ function handleABAction(mode, action) {
 }
 
 function getEQSnapshotStore() {
+  const empty = () => Object.fromEntries(EQ_MODES.map(m => [m, []]));
   try {
     const parsed = JSON.parse(localStorage.getItem(EQ_SNAPSHOT_KEY) || '{}');
-    return {
-      parametric: Array.isArray(parsed.parametric) ? parsed.parametric : [],
-      graphic: Array.isArray(parsed.graphic) ? parsed.graphic : []
-    };
+    return Object.fromEntries(
+      EQ_MODES.map(m => [m, Array.isArray(parsed[m]) ? parsed[m] : []])
+    );
   } catch {
-    return { parametric: [], graphic: [] };
+    return empty();
   }
 }
 
 function setEQSnapshotStore(store) {
-  localStorage.setItem(EQ_SNAPSHOT_KEY, JSON.stringify({
-    parametric: (store.parametric || []).slice(0, EQ_SNAPSHOT_LIMIT),
-    graphic: (store.graphic || []).slice(0, EQ_SNAPSHOT_LIMIT)
-  }));
+  localStorage.setItem(EQ_SNAPSHOT_KEY, JSON.stringify(
+    Object.fromEntries(
+      EQ_MODES.map(m => [m, (store[m] || []).slice(0, EQ_SNAPSHOT_LIMIT)])
+    )
+  ));
 }
 
 function getABStore() {
+  const empty = () => Object.fromEntries(EQ_MODES.map(m => [m, {}]));
   try {
     const parsed = JSON.parse(localStorage.getItem(EQ_AB_KEY) || '{}');
-    return {
-      parametric: parsed.parametric || {},
-      graphic: parsed.graphic || {}
-    };
+    return Object.fromEntries(EQ_MODES.map(m => [m, parsed[m] || {}]));
   } catch {
-    return { parametric: {}, graphic: {} };
+    return empty();
   }
 }
 
@@ -4219,21 +4361,24 @@ function initAdvancedPanel() {
     showToast('Processing stage reset', 'success');
   });
 
-  // Presets — shared localStorage store, APO file as optional bonus
+  // Presets — the same unified profile store the toolbar uses, so a save here
+  // and a save there produce identical results. APO file export is a bonus.
   document.getElementById('btn-save-new-preset').addEventListener('click', async () => {
     const nameInput = document.getElementById('preset-name-input');
     const name = nameInput?.value.trim();
     if (!name) return;
-    const presets = getQuickPresets();
-    const next = { name, updatedAt: new Date().toISOString(), config: snapshotCurrentConfig() };
-    const idx = presets.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
-    if (idx >= 0) presets[idx] = next; else presets.push(next);
-    setQuickPresets(presets);
+    const profile = Profiles.createProfile(
+      name,
+      snapshotCurrentConfig(),
+      Profiles.captureSettings('profile'),
+      { eqMode: currentEQMode, device: appState.config.device || 'all' }
+    );
+    Profiles.saveProfile(profile);
     if (window.apoAPI) await window.apoAPI.savePreset(name, serializeConfig(appState.config)).catch(() => {});
     if (nameInput) nameInput.value = '';
     loadPresetsList();
     renderQuickPresetSelect();
-    showToast(`Preset saved: ${name}`, 'success');
+    showToast(`Saved profile "${name}": ${Profiles.summarizeProfile(profile).text}`, 'success');
   });
   loadPresetsList();
 
@@ -4243,7 +4388,7 @@ function initAdvancedPanel() {
     const delBtn = e.target.closest('.preset-del-btn');
     if (loadBtn) loadQuickPreset(loadBtn.dataset.presetName);
     if (delBtn) {
-      setQuickPresets(getQuickPresets().filter(p => p.name !== delBtn.dataset.presetName));
+      Profiles.deleteProfile(delBtn.dataset.presetName);
       loadPresetsList();
       renderQuickPresetSelect();
     }
@@ -4294,15 +4439,21 @@ function loadPresetsList() {
     container.innerHTML = '<div style="font-size:11px;color:var(--text-muted);">No presets saved yet</div>';
     return;
   }
-  container.innerHTML = presets.map(p => `
+  container.innerHTML = presets.map(p => {
+    const summary = Profiles.summarizeProfile(p);
+    return `
     <div class="preset-row">
-      <span>${escapeHtml(p.name)}</span>
+      <span class="preset-row-info">
+        <span class="preset-row-name">${escapeHtml(p.name)}</span>
+        <span class="preset-row-summary">${escapeHtml(summary.text)}</span>
+      </span>
       <div style="display:flex;gap:4px;">
         <button class="btn-ghost preset-load-btn" style="padding:3px 8px;font-size:11px;" data-preset-name="${escapeHtml(p.name)}">Load</button>
         <button class="btn-ghost preset-del-btn" style="padding:3px 8px;font-size:11px;" data-preset-name="${escapeHtml(p.name)}">Del</button>
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function renderIncludes() {
