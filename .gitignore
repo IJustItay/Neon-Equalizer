@@ -5,6 +5,7 @@ temp_usytrace/
 scratch/
 .agents/
 .claude/
+downloads/*
 
 *.log
 .DS_Store
