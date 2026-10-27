@@ -29,6 +29,8 @@ describe('Windows audio device encoding', () => {
     expect(enumerate(() => '[{"name":"扬声器"},{"name":"麦克风"}]')).toHaveLength(2);
   });
 
+  // Hosted Windows runners can cold-start PowerShell slowly. Allow its existing
+  // 10-second subprocess deadline plus assertion overhead, rather than 5 seconds.
   it.skipIf(process.platform !== 'win32').each([936, 866, 1251])(
     'preserves Unicode through PowerShell and APO starting from code page %i', (codePage) => {
     const guid = '{12345678-1234-1234-1234-123456789abc}';
@@ -66,5 +68,5 @@ function Get-ItemProperty {
     expect(text).toContain(`Device: ${name} ${connection} ${guid}`);
     expect(parseConfig(text).device).toBe(config.device);
     expect(text).not.toContain('\uFFFD');
-  });
+  }, 15000);
 });
