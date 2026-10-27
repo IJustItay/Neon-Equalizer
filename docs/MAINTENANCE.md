@@ -21,6 +21,10 @@ Previously closed reports were reviewed against the existing fixes and regressio
 - CI checks public paths, common credential patterns and the packaging allowlist. It reports file names and categories without exposing matching values. This is a preventative check, not a guarantee against every possible secret format.
 - Existing public history, forks and closed pull requests are not rewritten by these changes. Ignore rules protect future additions; they do not retract previously published material. No repository visibility change is made.
 
+## CodeQL security review — 2026-10-28
+
+Seven existing alerts were validated and addressed: graph legend labels/colors (alert 9), toast messages and exception text (6 and 7), copy expressions (3), delays (4), imported parametric filter values (2), and CI token permissions (8). Imported form values now use DOM properties, notification messages use `textContent`, legend text is escaped and colors validated, and CI declares `contents: read`. Regression tests cover hostile markup, ordinary numeric formatting and continued editing. Alerts are resolved through code changes rather than dismissed.
+
 ## Validation
 
 Run these checks with Node.js 22.12 or newer and the pinned pnpm version:
@@ -38,6 +42,6 @@ corepack pnpm build
 
 The Windows encoding tests use simulated endpoint registry data in a real PowerShell subprocess. They do not change registry settings or APO configuration. Shortcut tests stub registration and file persistence rather than reserving the tester's actual keyboard shortcuts. Windows audio hardware, Bluetooth/HID devices and all international keyboard layouts still need release testing on real devices.
 
-Local results: 112 tests passed across nine files; dependency audit reported zero known vulnerabilities; renderer, icon generation and Windows directory packaging succeeded. An isolated Electron 45.1.0 startup loaded the production CSP without renderer errors. Inspection of the application archive found only the two intended Electron source files and no private account/cloud modules. A temporary Git-index canary confirmed that the publication check rejects private source paths. A credential-pattern scan of 257 text blobs reachable from fetched public branch references found no matches.
+Local results: 117 tests passed across ten files; dependency audit reported zero known vulnerabilities; renderer, icon generation and Windows directory packaging succeeded. An isolated Electron 45.1.0 startup loaded the production CSP without renderer errors. Inspection of the application archive found only the two intended Electron source files and no private account/cloud modules. A temporary Git-index canary confirmed that the publication check rejects private source paths. A credential-pattern scan of 257 text blobs reachable from fetched public branch references found no matches.
 
 Migration references: [Vite](https://vite.dev/guide/migration), [Vitest](https://vitest.dev/guide/migration/), and [Electron breaking changes](https://www.electronjs.org/docs/latest/breaking-changes).

@@ -240,7 +240,7 @@ export class ParametricEQ {
 
       row.innerHTML = `
         <span class="filter-col filter-col-toggle">
-          <span class="filter-color-dot" style="background: ${filter.color}"></span>
+          <span class="filter-color-dot"></span>
           <button class="filter-toggle ${filter.enabled ? 'on' : ''}" data-action="toggle" title="Toggle filter"></button>
         </span>
         <span class="filter-col filter-col-type">
@@ -252,19 +252,19 @@ export class ParametricEQ {
         </span>
         <span class="filter-col filter-col-freq">
           <div class="filter-input-group">
-            <input type="number" class="filter-input filter-freq" value="${filter.frequency || ''}" min="1" max="24000" step="1" placeholder="Freq">
+            <input type="number" class="filter-input filter-freq" min="1" max="24000" step="1" placeholder="Freq">
             <span class="unit">Hz</span>
           </div>
         </span>
         <span class="filter-col filter-col-gain">
           <div class="filter-input-group">
-            <input type="number" class="filter-input filter-gain" value="${filter.gain !== null && filter.gain !== undefined ? filter.gain.toFixed(1) : ''}" min="-30" max="30" step="0.1" placeholder="Gain" ${typeConfig.hasGain ? '' : 'disabled'}>
+            <input type="number" class="filter-input filter-gain" min="-30" max="30" step="0.1" placeholder="Gain" ${typeConfig.hasGain ? '' : 'disabled'}>
             <span class="unit">dB</span>
           </div>
         </span>
         <span class="filter-col filter-col-q">
           <div class="filter-input-group">
-            <input type="number" class="filter-input filter-q" value="${filter.q !== null && filter.q !== undefined ? filter.q.toFixed(3) : ''}" min="0.01" max="100" step="0.01" placeholder="Q" ${typeConfig.hasQ ? '' : 'disabled'}>
+            <input type="number" class="filter-input filter-q" min="0.01" max="100" step="0.01" placeholder="Q" ${typeConfig.hasQ ? '' : 'disabled'}>
             <span class="unit">Q</span>
           </div>
         </span>
@@ -282,6 +282,12 @@ export class ParametricEQ {
           </button>
         </span>
       `;
+
+      // Assign untrusted imported values through DOM properties, never markup.
+      row.querySelector('.filter-color-dot').style.backgroundColor = filter.color || '';
+      row.querySelector('.filter-freq').value = filter.frequency || '';
+      row.querySelector('.filter-gain').value = Number.isFinite(filter.gain) ? filter.gain.toFixed(1) : '';
+      row.querySelector('.filter-q').value = Number.isFinite(filter.q) ? filter.q.toFixed(3) : '';
 
       // Events
       row.addEventListener('click', (e) => {

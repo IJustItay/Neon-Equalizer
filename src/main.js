@@ -1568,22 +1568,24 @@ function updateGraphLegend() {
     });
     if (freqGraph.prefBoundsVisible) items.push({ color: '#fbbf24', label: 'Pref. Bounds', style: 'dashed' });
     legend.innerHTML = items.map(i => {
+      const color = escapeCssColor(i.color);
+      const label = escapeHtml(i.label);
       let swatch;
       if (i.gradient) {
         swatch = '<div class="legend-line" style="background:linear-gradient(90deg,#00d4ff,#7c3aed,#ec4899);"></div>';
       } else if (i.style === 'dashed') {
-        swatch = `<div class="legend-line" style="background:none;border-top:2px dashed ${i.color};"></div>`;
+        swatch = `<div class="legend-line" style="background:none;border-top:2px dashed ${color};"></div>`;
       } else if (i.style === 'dotdash') {
-        swatch = `<div class="legend-line" style="background:none;border-top:2px dotted ${i.color};"></div>`;
+        swatch = `<div class="legend-line" style="background:none;border-top:2px dotted ${color};"></div>`;
       } else if (i.style === 'band') {
-        swatch = `<div class="legend-line" style="background:${i.color}33;border-top:1px solid ${i.color};border-bottom:1px solid ${i.color};"></div>`;
+        swatch = `<div class="legend-line" style="background:${color}33;border-top:1px solid ${color};border-bottom:1px solid ${color};"></div>`;
       } else {
-        swatch = `<div class="legend-line" style="background:${i.color};"></div>`;
+        swatch = `<div class="legend-line" style="background:${color};"></div>`;
       }
       const colorPicker = i.curveKey
-        ? `<label class="legend-color-label" title="Click to change ${i.label} color"><input type="color" class="legend-color-input" data-curve="${i.curveKey}" value="${i.color}"></label>`
+        ? `<label class="legend-color-label" title="Click to change ${label} color"><input type="color" class="legend-color-input" data-curve="${escapeHtml(i.curveKey)}" value="${color}"></label>`
         : '';
-      return `<div class="graph-legend-item">${swatch}${i.label}${colorPicker}</div>`;
+      return `<div class="graph-legend-item">${swatch}${label}${colorPicker}</div>`;
     }).join('');
   }
   updateAutoEQButtonState();
@@ -4219,11 +4221,13 @@ function renderCopyRoutes() {
     const row = document.createElement('div');
     row.className = 'copy-route-row';
     row.innerHTML = `
-      <input type="text" class="filter-input" style="width:55px;" value="${copy.target}" placeholder="Target">
+      <input type="text" class="filter-input" style="width:55px;" placeholder="Target">
       <span class="copy-eq">=</span>
-      <input type="text" class="filter-input" style="flex:1;" value="${copy.expression}" placeholder="Expression (e.g. L+0.5*R)">
+      <input type="text" class="filter-input" style="flex:1;" placeholder="Expression (e.g. L+0.5*R)">
       <button class="filter-delete" title="Remove">✕</button>
     `;
+    row.querySelectorAll('.filter-input')[0].value = copy.target;
+    row.querySelectorAll('.filter-input')[1].value = copy.expression;
     row.querySelectorAll('.filter-input')[0].addEventListener('input', e => { copy.target = e.target.value; markDirty(); });
     row.querySelectorAll('.filter-input')[1].addEventListener('input', e => { copy.expression = e.target.value; markDirty(); });
     row.querySelector('.filter-delete').addEventListener('click', () => {
@@ -4260,13 +4264,14 @@ function renderDelays() {
     const row = document.createElement('div');
     row.className = 'delay-row';
     row.innerHTML = `
-      <input type="number" class="filter-input" style="flex:1;" value="${delay.value}" min="0" step="0.1" placeholder="Value">
+      <input type="number" class="filter-input" style="flex:1;" min="0" step="0.1" placeholder="Value">
       <select class="select-sm" style="width:85px;">
         <option value="ms" ${delay.unit === 'ms' ? 'selected' : ''}>ms</option>
         <option value="samples" ${delay.unit === 'samples' ? 'selected' : ''}>samples</option>
       </select>
       <button class="filter-delete" title="Remove">✕</button>
     `;
+    row.querySelector('input').value = delay.value;
     row.querySelector('input').addEventListener('input', e => { delay.value = parseFloat(e.target.value)||0; markDirty(); });
     row.querySelector('select').addEventListener('change', e => { delay.unit = e.target.value; markDirty(); });
     row.querySelector('.filter-delete').addEventListener('click', () => {
@@ -4896,7 +4901,10 @@ function showToast(message, type = 'success') {
   const container = document.getElementById('toast-container');
   const el = document.createElement('div');
   el.className = `toast ${type}`;
-  el.innerHTML = `${icons[type] || icons.success}<span>${message}</span>`;
+  el.innerHTML = icons[type] || icons.success;
+  const text = document.createElement('span');
+  text.textContent = message;
+  el.appendChild(text);
   container.appendChild(el);
   setTimeout(() => { el.classList.add('fade-out'); setTimeout(() => el.remove(), 260); }, 3200);
 }
