@@ -459,6 +459,9 @@ function listWindowsAudioDevices() {
   if (process.platform !== 'win32') return [];
 
   const script = `
+# Match Node's UTF-8 decoder; Windows PowerShell otherwise uses the OEM code page.
+[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$OutputEncoding = [Console]::OutputEncoding
 $ErrorActionPreference = 'SilentlyContinue'
 $roots = @(
   @{ Path = 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Render'; Flow = 'playback'; FlowLabel = 'Playback' },
