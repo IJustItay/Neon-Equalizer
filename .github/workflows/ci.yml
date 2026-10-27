@@ -36,6 +36,9 @@ jobs:
         run: pnpm audit --audit-level=high
         continue-on-error: true
 
+      - name: Check public file and package boundaries
+        run: node scripts/check-publication.mjs
+
       - name: Check Electron shell syntax
         run: node --check electron/main.js && node --check electron/preload.js
 

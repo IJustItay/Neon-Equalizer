@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, globalShortcut, nativeImage, clipboard, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Tray, Menu, globalShortcut, nativeImage, clipboard, ClipboardItem, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const dns = require('dns');
@@ -22,6 +22,9 @@ if (!gotSingleInstanceLock) {
 let mainWindow;
 let tray = null;
 let trayMenuRefreshTimer = null;
+// System-wide shortcuts are opt-in: registering a key reserves it in every app.
+let globalShortcutsEnabled = false;
+const shortcutSettingsPath = path.join(app.getPath('userData'), 'shortcuts.json');
 // NEON_EQ_LOAD_DIST=1 loads the built dist/ (with production CSP) in an
 // unpackaged run — lets us test packaged-renderer behavior without electron-builder.
 const isDev = !app.isPackaged && process.env.NEON_EQ_LOAD_DIST !== '1';
@@ -48,11 +51,11 @@ const volatileUserDataDirs = new Set([
   'logs'
 ]);
 const QUICK_EQ_PROFILES = [
-  { id: 'flat', label: 'Flat EQ', accelerator: 'CommandOrControl+Alt+0', filters: [] },
+  { id: 'flat', label: 'Flat EQ', accelerator: 'CommandOrControl+Shift+0', filters: [] },
   {
     id: 'bass-boost',
     label: 'Bass Boost',
-    accelerator: 'CommandOrControl+Alt+1',
+    accelerator: 'CommandOrControl+Shift+1',
     filters: [
       { type: 'LS', frequency: 100, gain: 6, q: 0.707 },
       { type: 'PK', frequency: 60, gain: 4, q: 1.0 }
@@ -61,7 +64,7 @@ const QUICK_EQ_PROFILES = [
   {
     id: 'treble-boost',
     label: 'Treble Boost',
-    accelerator: 'CommandOrControl+Alt+2',
+    accelerator: 'CommandOrControl+Shift+2',
     filters: [
       { type: 'HS', frequency: 8000, gain: 5, q: 0.707 },
       { type: 'PK', frequency: 12000, gain: 3, q: 1.0 }
@@ -70,7 +73,7 @@ const QUICK_EQ_PROFILES = [
   {
     id: 'vocal',
     label: 'Vocal Enhance',
-    accelerator: 'CommandOrControl+Alt+3',
+    accelerator: 'CommandOrControl+Shift+3',
     filters: [
       { type: 'PK', frequency: 200, gain: -2, q: 1.0 },
       { type: 'PK', frequency: 3000, gain: 4, q: 1.5 },
@@ -80,7 +83,7 @@ const QUICK_EQ_PROFILES = [
   {
     id: 'v-shape',
     label: 'V-Shape',
-    accelerator: 'CommandOrControl+Alt+4',
+    accelerator: 'CommandOrControl+Shift+4',
     filters: [
       { type: 'PK', frequency: 60, gain: 5, q: 0.8 },
       { type: 'PK', frequency: 200, gain: -3, q: 1.0 },
@@ -92,7 +95,7 @@ const QUICK_EQ_PROFILES = [
   {
     id: 'loudness',
     label: 'Loudness',
-    accelerator: 'CommandOrControl+Alt+5',
+    accelerator: 'CommandOrControl+Shift+5',
     filters: [
       { type: 'PK', frequency: 40, gain: 8, q: 0.8 },
       { type: 'PK', frequency: 80, gain: 5, q: 1.0 },
@@ -687,20 +690,20 @@ function updateTrayMenu() {
   }));
   const quickItems = QUICK_EQ_PROFILES.map(profile => ({
     label: profile.label,
-    accelerator: profile.accelerator,
+    accelerator: globalShortcutsEnabled ? profile.accelerator : undefined,
     click: () => applyQuickEqProfile(profile.id)
   }));
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Show / Hide', accelerator: 'CommandOrControl+Shift+E', click: showOrHideMainWindow },
+    { label: 'Show / Hide', accelerator: globalShortcutsEnabled ? 'CommandOrControl+Shift+E' : undefined, click: showOrHideMainWindow },
     { type: 'separator' },
     { label: 'Quick EQ', submenu: quickItems },
     { label: 'Apply Saved Preset', submenu: presetItems.length > 0 ? presetItems : [{ label: 'No presets', enabled: false }] },
     {
       label: 'Preamp',
       submenu: [
-        { label: 'Raise 1 dB', accelerator: 'CommandOrControl+Alt+Up', click: () => adjustTrayPreamp(1) },
-        { label: 'Lower 1 dB', accelerator: 'CommandOrControl+Alt+Down', click: () => adjustTrayPreamp(-1) },
+        { label: 'Raise 1 dB', accelerator: globalShortcutsEnabled ? 'CommandOrControl+Shift+Up' : undefined, click: () => adjustTrayPreamp(1) },
+        { label: 'Lower 1 dB', accelerator: globalShortcutsEnabled ? 'CommandOrControl+Shift+Down' : undefined, click: () => adjustTrayPreamp(-1) },
         { type: 'separator' },
         ...[-12, -9, -6, -3, 0, 3].map(value => ({
           label: `${value >= 0 ? '+' : ''}${value} dB`,
@@ -710,6 +713,7 @@ function updateTrayMenu() {
     },
     { label: 'Target Device', submenu: buildDeviceTrayItems() },
     { type: 'separator' },
+    { label: 'Enable Global Shortcuts', type: 'checkbox', checked: globalShortcutsEnabled, click: item => setGlobalShortcutsEnabled(item.checked) },
     { label: 'Refresh Tray Menu', click: scheduleTrayMenuRefresh },
     { label: 'Open Equalizer APO Config Folder', click: () => {
       const apoPath = getAPOConfigPath();
@@ -732,12 +736,38 @@ function scheduleTrayMenuRefresh() {
   }, 150);
 }
 
+function loadGlobalShortcutSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(shortcutSettingsPath, 'utf8')).enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+function setGlobalShortcutsEnabled(enabled) {
+  const next = enabled === true;
+  try {
+    fs.mkdirSync(path.dirname(shortcutSettingsPath), { recursive: true });
+    fs.writeFileSync(shortcutSettingsPath, JSON.stringify({ enabled: next }), 'utf8');
+  } catch (error) {
+    dialog.showErrorBox('Could not save shortcut settings', error.message);
+    scheduleTrayMenuRefresh();
+    return false;
+  }
+  globalShortcutsEnabled = next;
+  registerGlobalShortcuts();
+  scheduleTrayMenuRefresh();
+  return true;
+}
+
 function registerGlobalShortcuts() {
+  globalShortcut.unregisterAll();
+  if (!globalShortcutsEnabled) return;
   const shortcuts = [
     ['CommandOrControl+Shift+E', showOrHideMainWindow],
     ...QUICK_EQ_PROFILES.map(profile => [profile.accelerator, () => applyQuickEqProfile(profile.id)]),
-    ['CommandOrControl+Alt+Up', () => adjustTrayPreamp(1)],
-    ['CommandOrControl+Alt+Down', () => adjustTrayPreamp(-1)]
+    ['CommandOrControl+Shift+Up', () => adjustTrayPreamp(1)],
+    ['CommandOrControl+Shift+Down', () => adjustTrayPreamp(-1)]
   ];
   for (const [accelerator, action] of shortcuts) {
     try {
@@ -913,6 +943,7 @@ app.whenReady().then(() => {
   configureAutoUpdater();
 
   // System Tray Setup
+  globalShortcutsEnabled = loadGlobalShortcutSettings();
   tray = new Tray(createTrayIcon());
   tray.setToolTip(APP_NAME);
   updateTrayMenu();
@@ -1299,7 +1330,10 @@ handleApp('capture-region-image', async (event, rect = {}, options = {}) => {
 
     const image = await mainWindow.webContents.capturePage(captureRect);
     if (!image || image.isEmpty()) throw new Error('Captured preview image is empty');
-    clipboard.writeImage(image);
+    const png = image.toPNG();
+    await clipboard.write([
+      new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) })
+    ]);
 
     const dir = path.join(app.getPath('temp'), 'EqualizerAPOStudio');
     fs.mkdirSync(dir, { recursive: true });
@@ -1308,7 +1342,7 @@ handleApp('capture-region-image', async (event, rect = {}, options = {}) => {
       .replace(/\s+/g, '-')
       .slice(0, 80) || 'squig-preview';
     const filePath = path.join(dir, `${safeName}-${Date.now()}.png`);
-    fs.writeFileSync(filePath, image.toPNG());
+    fs.writeFileSync(filePath, png);
 
     return { success: true, path: filePath, dataUrl: image.toDataURL(), copiedToClipboard: true };
   } catch (e) {

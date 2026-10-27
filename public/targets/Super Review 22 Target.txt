@@ -1,11 +1,11 @@
 * Measurement data measured by REW V5.20.13
-* Source: C:\Users\tpgnm\Downloads\MRS.txt
+* Source: MRS.txt
 * Format: Comma/Tab/Space delimited data
 * Dated: Feb 1, 2023 10:43:40 PM
 * REW Settings:
 *  C-weighting compensation: Off
 *  Target level: 75.0 dB
-* Note: Measurement imported from C:\Users\tpgnm\Downloads\MRS.txt Format: Comma/Tab/Space delimited data 8 values loaded, 20 Hz to 20,040 Hz log spaced
+* Note: Measurement imported from MRS.txt Format: Comma/Tab/Space delimited data 8 values loaded, 20 Hz to 20,040 Hz log spaced
 * Measurement: MRS
 * Smoothing: 1/3 octave
 * Frequency Step: 1/48 octave

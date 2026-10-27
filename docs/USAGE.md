@@ -46,3 +46,15 @@
 - If no system-wide EQ is heard, open Equalizer APO Configurator and make sure your playback device is selected.
 - If the graph looks clipped, lower the preamp or enable automatic preamp.
 - If a target or measurement does not load, check your internet connection and try another source.
+
+## Global Keyboard Shortcuts
+
+Global shortcuts start disabled. Right-click the Windows tray icon and select **Enable Global Shortcuts** to opt in; the choice is remembered between launches. Disable it to release all registered keys immediately.
+
+| Keys | Action |
+|---|---|
+| Ctrl+Shift+E | Show or hide Neon Equalizer |
+| Ctrl+Shift+0–5 | Flat, Bass Boost, Treble Boost, Vocal Enhance, V-Shape, Loudness |
+| Ctrl+Shift+Up / Down | Raise or lower preamp by 1 dB |
+
+These keys affect all applications while enabled. No Ctrl+Alt combination is registered, preserving AltGr input on international keyboards. Tray EQ actions remain available with shortcuts disabled.

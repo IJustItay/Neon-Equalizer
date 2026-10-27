@@ -10,3 +10,37 @@ downloads/*
 *.log
 .DS_Store
 Thumbs.db
+
+# Local credentials and account state
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*credentials*.json
+google-oauth*.json
+account.dat
+
+# Private work is maintained separately from the public application
+.private/
+website/
+firebase.json
+firestore.*
+vercel.json
+src/firebaseConfig.js
+src/services/cloudService.js
+docs/firebase-cloud-setup.md
+electron/googleAuth.js
+electron/cloudSync.js
+src/components/account.js
+src/state/cloudSync.js
+tests/cloudSync.test.js
+
+# Local research and obsolete build/download artifacts
+/CODEBASE_AUDIT.md
+/NATIVE_AUDIO_FEASIBILITY.md
+/build-installer.js
+/wiki.html
+/skills-lock.json

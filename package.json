@@ -1,6 +1,6 @@
 {
   "name": "neon-equalizer",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "Professional Neon Equalizer GUI for Equalizer APO with AutoEQ and Squiglink integration",
   "keywords": [
     "equalizer-apo",
@@ -64,7 +64,8 @@
     ],
     "files": [
       "dist/**/*",
-      "electron/**/*",
+      "electron/main.js",
+      "electron/preload.js",
       "assets/**/*",
       "package.json"
     ],
@@ -99,17 +100,18 @@
     }
   },
   "devDependencies": {
-    "concurrently": "^9.0.0",
-    "electron": "^41.0.0",
-    "electron-builder": "^26.8.1",
-    "sharp": "^0.34.5",
-    "vite": "^6.0.0",
-    "vitest": "^3.2.6",
-    "wait-on": "^8.0.0"
+    "concurrently": "^10.0.6",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
+    "electron-builder-squirrel-windows": "26.18.0",
+    "sharp": "^0.35.5",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5",
+    "wait-on": "^9.5.1"
   },
   "dependencies": {
-    "adm-zip": "^0.6.0",
-    "electron-updater": "^6.8.3"
+    "adm-zip": "^0.6.1",
+    "electron-updater": "^6.8.11"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -119,7 +121,8 @@
       "sharp"
     ],
     "overrides": {
-      "shell-quote@<1.8.4": ">=1.8.4"
+      "shell-quote@<1.12.0": "^1.12.0",
+      "electron-builder-squirrel-windows": "26.18.0"
     }
   }
 }

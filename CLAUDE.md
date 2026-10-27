@@ -20,12 +20,12 @@ Users use it to:
 
 | Layer | Technology |
 |-------|-----------|
-| Desktop shell | Electron 41 |
-| Bundler | Vite 6 |
+| Desktop shell | Electron 45 |
+| Bundler | Vite 8 |
 | UI | Vanilla JavaScript (no framework) |
 | Styling | Plain CSS with custom properties |
 | Build output | Windows `.exe` (portable + NSIS installer) |
-| Package manager | npm |
+| Package manager | pnpm 9 (via Corepack) |
 
 **There is no React, Vue, Angular, or TypeScript.** Do not introduce them.
 

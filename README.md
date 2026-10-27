@@ -63,6 +63,8 @@ Get-FileHash .\Neon-Equalizer-*-Setup.exe -Algorithm SHA256
 
 The [usage guide](docs/USAGE.md) covers every panel in detail.
 
+Global keyboard shortcuts are **off by default**. To enable them, right-click the tray icon and select **Enable Global Shortcuts**. Quick EQ uses `Ctrl+Shift+0` through `Ctrl+Shift+5`, preamp uses `Ctrl+Shift+Up/Down`, and show/hide uses `Ctrl+Shift+E`. Enabling reserves these keys across applications; turn the option off to release them. Shortcuts do not use `Ctrl+Alt`, so they do not intercept AltGr characters.
+
 ## Features
 
 ### Equalizer
@@ -143,6 +145,8 @@ assets/icon.svg   Logo source (all icons are generated from this)
 The renderer runs sandboxed with a strict production Content-Security-Policy (no eval, no remote scripts). All privileged operations go through validated IPC channels: file access is scoped to the APO config directory and user-selected paths, and network fetches are SSRF-guarded (DNS validated at connect time, redirects re-checked per hop). Remote data — measurements, reviewer configs — is parsed as pure data and never executed.
 
 Found a security issue? Please open an issue or contact the maintainer privately.
+
+Before publishing source or packaging a build, run `node scripts/check-publication.mjs`. It checks tracked paths and common credential patterns without printing secret values. The installer includes an explicit list of public runtime files. Local credentials, private feature work, research reports, and generated downloads stay outside that list. Use GitHub Releases for installers.
 
 ## Contributing
 

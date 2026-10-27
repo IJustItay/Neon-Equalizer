@@ -15,7 +15,7 @@
 ## 2. Global Variables & Constants
 - `mainWindow`, `tray`, `trayMenuRefreshTimer`: Store the window and tray instances.
 - `updateState`: Tracks the current state of `electron-updater` (status, version, download progress).
-- `QUICK_EQ_PROFILES`: An array defining built-in quick EQ settings (Flat, Bass Boost, Treble Boost, Vocal Enhance, V-Shape, Loudness) along with their global keyboard shortcuts (`CommandOrControl+Alt+1`, etc.).
+- `QUICK_EQ_PROFILES`: Built-in quick EQ settings (Flat, Bass Boost, Treble Boost, Vocal Enhance, V-Shape, Loudness) and optional global shortcuts (`CommandOrControl+Shift+0` through `CommandOrControl+Shift+5`).
 
 ## 3. Window Creation (`createWindow`)
 - **`createWindow()`**: Initializes the `BrowserWindow`. 
@@ -28,7 +28,9 @@
 - **`createTrayIcon()`**: Helper to get the correct icon for the tray.
 - **`buildDeviceTrayItems()`**: Calls the PowerShell audio device enumeration and builds a submenu for the tray allowing users to quickly switch the APO target device.
 - **`updateTrayMenu()`**: Rebuilds the tray context menu, populating it with Quick EQs, Presets, Preamp controls (Raise/Lower), Target Devices, and basic app controls (Show/Hide, Quit).
-- **`registerGlobalShortcuts()`**: Registers system-wide hotkeys (e.g., `Ctrl+Alt+Up` to raise preamp globally).
+- **`loadGlobalShortcutSettings()`**: Reads the main-process shortcut preference; missing or invalid settings default to disabled.
+- **`setGlobalShortcutsEnabled(enabled)`**: Persists the tray checkbox, registers or releases shortcuts, and refreshes the tray. A failed save preserves the previous state.
+- **`registerGlobalShortcuts()`**: Releases existing registrations and, only when enabled, registers system-wide `Ctrl+Shift` shortcuts. No `Ctrl+Alt` combination is reserved, preserving AltGr input.
 - **`setupWindowsUserTasks()`**: Uses `app.setUserTasks` to add jump list tasks to the Windows taskbar icon (e.g., right-click the taskbar icon to apply "Bass Boost" without fully opening the app).
 - **`handleCommandArgs(argv)`**: Processes command-line arguments (like `--quick-eq=bass-boost`) allowing the app to run headlessly to apply a profile and exit.
 
